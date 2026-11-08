@@ -67,6 +67,10 @@ const sfx = {
   extra: () => melody([659, 784, 1047, 1319], 80, 'sine', 0.07),
   over: () => melody([392, 330, 262, 196], 220, 'sawtooth', 0.06),
   tick: () => tone(300, 0.05, 'square', 0.03),
+  hurry: () => melody([880, 660, 880, 660, 880], 90, 'square', 0.05),
+  count: () => tone(1100, 0.03, 'square', 0.025),
+  star: () => melody([784, 988, 1175, 988, 784], 60, 'square', 0.04),
+  up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
 // ---------- 상태 ----------
@@ -189,18 +193,26 @@ function handle(e) {
   else if (e.t === 'block') { bumps.push({ tx: e.tx, ty: e.ty, t: 0 }); if (e.ch !== '?') sfx.bump(); tutorialSignal('block'); }
   else if (e.t === 'brick') { sfx.brick(); for (let i = 0; i < 4; i++) fxs.push({ kind: 'brick', x: e.tx * T + 8, y: e.ty * T + 8, vx: (i % 2 ? 1 : -1) * (30 + i * 10), vy: -120 - (i > 1 ? 40 : 0), t: 0, life: 0.9 }); }
   else if (e.t === 'powerup') sfx.powerup();
-  else if (e.t === 'power') { sfx.power(); tutorialSignal('power'); showBanner(e.type === 'flower' ? '불꽃 마리오!' : '커졌다!', '', 1, '#ffd23a'); }
+  else if (e.t === 'power') {
+    if (e.type === '1up') { sfx.up1(); showBanner('1UP!', '', 1, '#7dff7d'); }
+    else if (e.type === 'star') { sfx.star(); showBanner('별 마리오!', '10초 동안 무적', 1.2, '#ffd23a'); }
+    else { sfx.power(); showBanner(e.type === 'flower' ? '불꽃 마리오!' : '커졌다!', '', 1, '#ffd23a'); }
+    tutorialSignal('power');
+  }
+  else if (e.t === 'hurry') { sfx.hurry(); showBanner('서둘러!', '시간이 얼마 안 남았어요', 1.6, '#ff6a6a'); }
+  else if (e.t === 'tick') sfx.count();
+  else if (e.t === 'starEnd') sfx.shrink();
   else if (e.t === 'shrink') sfx.shrink();
   else if (e.t === 'stomp') { sfx.stomp(); tutorialSignal('stomp'); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#fff' }); }
   else if (e.t === 'kick') sfx.kick();
   else if (e.t === 'kill') { sfx.kill(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#ffd23a' }); }
   else if (e.t === 'fire') sfx.fire();
   else if (e.t === 'flag') { sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
-  else if (e.t === 'clear') { setTimeout(() => sfx.clear(), 900); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
+  else if (e.t === 'clear') { sfx.clear(); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
   else if (e.t === 'stage' && G.time > 0.2) { announceStage(); }
   else if (e.t === 'dead') { sfx.dead(); showBanner(e.why === 'time' ? '시간 초과!' : '앗!', '', 1.6, '#ff6a6a'); }
   else if (e.t === 'respawn') announceStage();
-  else if (e.t === 'extra') { sfx.extra(); showBanner('목숨 +1', '', 1.2, '#ff9bd0'); }
+  else if (e.t === 'extra') { sfx.up1(); showBanner('1UP!', '목숨 +1', 1.2, '#7dff7d'); }
   else if (e.t === 'over') { sfx.over(); setTimeout(gameOver, e.won ? 200 : 500); }
 }
 
@@ -238,7 +250,7 @@ function drawTile(ch, x, y, th, tx, ty) {
   } else if (ch === 'B') {
     RC(x, y, T, T, th.brick); RC(x, y, T, 1, 'rgba(255,255,255,.35)');
     RC(x, y + 5, T, 1, '#000'); RC(x, y + 10, T, 1, '#000'); RC(x + 7, y, 1, 5, '#000'); RC(x + 3, y + 5, 1, 5, '#000'); RC(x + 11, y + 5, 1, 5, '#000'); RC(x + 7, y + 10, 1, 6, '#000');
-  } else if (ch === '?' || ch === 'M') {
+  } else if (ch === '?' || ch === 'M' || ch === '*' || ch === '1' || ch === '$') {
     const pulse = Math.floor(clock * 4) % 4 === 0;
     RC(x, y, T, T, pulse ? '#fcd84c' : '#f0a020'); RC(x, y, T, 1, '#fff2a0'); RC(x, y + 15, T, 1, '#8a4a00'); RC(x, y, 1, T, '#fff2a0'); RC(x + 15, y, 1, T, '#8a4a00');
     ctx.fillStyle = '#7a3a00'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x + 8, y + 9);
@@ -268,9 +280,16 @@ function drawTiles(th) {
     if (b) dy = -Math.sin((b.t / 0.2) * Math.PI) * 5;
     drawTile(ch, tx * T - Math.round(G.camX), HUD + ty * T + dy, th, tx, ty);
   }
-  // 깃발 (깃대 꼭대기 옆)
+  // 깃발 (깃대 꼭대기 옆에서, 마리오가 잡으면 같이 내려온다)와 성
   const fx = G.level.flag * T - Math.round(G.camX);
-  if (fx > -40 && fx < VW + 20) { ctx.fillStyle = '#2cd02c'; ctx.beginPath(); ctx.moveTo(fx + 7, HUD + 2 * T); ctx.lineTo(fx - 9, HUD + 2 * T + 6); ctx.lineTo(fx + 7, HUD + 2 * T + 12); ctx.fill(); }
+  if (fx > -60 && fx < VW + 20) {
+    const fy = G.flagY === undefined ? 2 * T : G.flagY - 12;
+    ctx.fillStyle = '#2cd02c'; ctx.beginPath(); ctx.moveTo(fx + 7, HUD + fy); ctx.lineTo(fx - 9, HUD + fy + 6); ctx.lineTo(fx + 7, HUD + fy + 12); ctx.fill();
+    const cx = (G.level.flag + 3) * T - Math.round(G.camX), cy = HUD + GROUND * T;
+    RC(cx, cy - 3 * T, 3 * T, 3 * T, '#b0603a'); RC(cx - 4, cy - 3 * T - 5, 3 * T + 8, 6, '#8a4a2a');
+    for (let k = 0; k < 4; k++) RC(cx - 4 + k * 14, cy - 3 * T - 11, 8, 6, '#8a4a2a');
+    RC(cx + 16, cy - 20, 16, 20, '#201008'); ctx.fillStyle = '#201008'; ctx.beginPath(); ctx.arc(cx + 24, cy - 20, 8, Math.PI, 0); ctx.fill();
+  }
 }
 function drawGoomba(e, x, y) {
   if (e.state === 'flat') { RC(x, y + 8, 12, 4, '#a0603a'); return; }
@@ -303,10 +322,24 @@ function drawEnemies() {
     ctx.restore();
   }
 }
+function drawPlants() {
+  for (const p of G.plants) {
+    const x = Math.round(p.x - G.camX), y = HUD + Math.round(p.y);
+    if (x < -20 || x > VW + 20 || p.extent <= 0) continue;
+    const open = Math.floor(clock * 5) % 2;
+    RC(x + 4, y + 8, 4, 12, '#2cb02c');                                                  // 줄기
+    ctx.fillStyle = '#e83030'; ctx.beginPath(); ctx.arc(x + 6, y + 5, 6, 0, Math.PI * 2); ctx.fill();   // 머리
+    RC(x + 3, y + 2, 2, 2, '#fff'); RC(x + 8, y + 3, 2, 2, '#fff'); RC(x + 5, y + 7, 2, 2, '#fff');
+    RC(x, y + 4 + (open ? 0 : 2), 12, open ? 3 : 1, '#fff8f0');                         // 벌어진 입
+    RC(x - 2, y + 8, 5, 3, '#2cb02c'); RC(x + 9, y + 8, 5, 3, '#2cb02c');                // 잎
+  }
+}
 function drawItems() {
   for (const it of G.items) {
     const x = Math.round(it.x - G.camX), y = HUD + Math.round(it.y);
     if (it.type === 'mushroom') { ctx.fillStyle = '#e83030'; ctx.beginPath(); ctx.ellipse(x + 6, y + 6, 6.5, 6, 0, Math.PI, 0); ctx.fill(); RC(x + 3, y + 3, 3, 3, '#fff'); RC(x + 8, y + 2, 2, 3, '#fff'); RC(x + 2, y + 6, 8, 5, '#f8e0b0'); RC(x + 4, y + 7, 1, 2, '#000'); RC(x + 7, y + 7, 1, 2, '#000'); }
+    else if (it.type === '1up') { ctx.fillStyle = '#28b848'; ctx.beginPath(); ctx.ellipse(x + 6, y + 6, 6.5, 6, 0, Math.PI, 0); ctx.fill(); RC(x + 3, y + 3, 3, 3, '#fff'); RC(x + 8, y + 2, 2, 3, '#fff'); RC(x + 2, y + 6, 8, 5, '#f8e0b0'); RC(x + 4, y + 7, 1, 2, '#000'); RC(x + 7, y + 7, 1, 2, '#000'); }
+    else if (it.type === 'star') { const cols = ['#ffd23a', '#f08020', '#fff2a0', '#ffd23a']; ctx.fillStyle = cols[Math.floor(clock * 12) % 4]; ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 3 : 6.5; ctx.lineTo(x + 6 + Math.cos(a) * r, y + 6 + Math.sin(a) * r); } ctx.closePath(); ctx.fill(); RC(x + 4, y + 5, 1, 2, '#000'); RC(x + 7, y + 5, 1, 2, '#000'); }
     else { const f = Math.floor(clock * 6) % 2; ctx.fillStyle = f ? '#f08020' : '#e83030'; ctx.beginPath(); ctx.arc(x + 6, y + 5, 5, 0, Math.PI * 2); ctx.fill(); RC(x + 5, y + 8, 2, 4, '#2cb02c'); RC(x + 3, y + 3, 6, 4, '#ffd23a'); RC(x + 5, y + 4, 2, 2, '#fff'); }
   }
   for (const f of G.fireballs) { const x = Math.round(f.x - G.camX), y = HUD + Math.round(f.y); ctx.fillStyle = Math.floor(clock * 20) % 2 ? '#ffd23a' : '#f05010'; ctx.beginPath(); ctx.arc(x + 3, y + 3, 3.2, 0, Math.PI * 2); ctx.fill(); }
@@ -314,8 +347,10 @@ function drawItems() {
 function drawMario() {
   const m = G.m;
   if (m.invuln > 0 && !m.dead && Math.floor(m.invuln * 14) % 2) return;
+  if (m.hidden) return;
   const x = Math.round(m.x - G.camX), y = HUD + Math.round(m.y), f = m.face;
-  const suit = m.size === 'fire' ? '#f8f8f8' : '#e83030', pants = m.size === 'fire' ? '#e83030' : '#2c5cd8';
+  let suit = m.size === 'fire' ? '#f8f8f8' : '#e83030', pants = m.size === 'fire' ? '#e83030' : '#2c5cd8';
+  if (m.star > 0) { const pal = [['#e83030', '#2c5cd8'], ['#f8f8f8', '#e83030'], ['#f0c020', '#2c9c2c'], ['#40c040', '#e83030']]; [suit, pants] = pal[Math.floor(clock * (m.star < 2 ? 8 : 16)) % 4]; }
   const big = m.size !== 'small', hh = m.h;
   const run = Math.abs(m.vx) > 5 && m.onGround, step = Math.floor(clock * (Math.abs(m.vx) > 100 ? 14 : 9)) % 2;
   const px = (ox, oy, w, h, c) => RC(x + (f > 0 ? ox : 12 - ox - w), y + oy, w, h, c);
@@ -327,6 +362,7 @@ function drawMario() {
   px(1, bodyY, 10, bodyH, suit); px(2, bodyY + (big ? 5 : 0), 8, big ? 7 : 3, pants);
   px(m.onGround ? (step && run ? 0 : 1) : 0, hh - 3 + 0, 5, 3, '#6a3a12'); px(m.onGround ? (step && run ? 7 : 6) : 7, hh - 3, 5, 3, '#6a3a12');
   if (!m.onGround) px(10, bodyY + 1, 3, 3, suit);                                      // 점프할 때 팔을 든다
+  if (m.skid) px(-1, hh - 5, 3, 2, 'rgba(255,255,255,.7)');                            // 미끄러지며 먼지
 }
 function drawFx() {
   for (const f of fxs) {
@@ -352,8 +388,9 @@ function draw() {
   const th = THEME[G.level.theme];
   ctx.save(); ctx.beginPath(); ctx.rect(0, HUD, VW, VH); ctx.clip();
   drawBackground(th, G.camX);
+  drawPlants(); drawItems();
   drawTiles(th);
-  drawItems(); drawEnemies(); drawMario(); drawFx();
+  drawEnemies(); drawMario(); drawFx();
   ctx.restore();
   drawHud();
   if (banner.t > 0) {

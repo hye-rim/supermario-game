@@ -295,7 +295,7 @@ test('a koopa turns into a shell when stomped, a touch kicks it, and a moving sh
   st.m.x = 2 * T;
   run(st, 1);
   assert.strictEqual(g.state === 'dead' || !st.enemies.includes(g), true, 'knocked out');
-  assert.ok(st.score >= L.POINTS.shell);
+  assert.ok(st.score >= L.POINTS.kick + L.SHELL_CHAIN[0], 'a kick and then a knocked-out enemy');
 });
 
 test('stomping a moving shell stops it, and a moving shell hurts mario from the side after the kick grace', () => {
@@ -350,31 +350,44 @@ test('bumping a block from below flips an enemy standing on it', () => {
   assert.ok(st.score >= L.POINTS.kill);
 });
 
-test('touching the flag clears the stage with points for height and time, then the next stage starts', () => {
+test('touching the flag starts the finish: slide down, walk to the castle, count the time into points, next stage', () => {
   const st = L.newGame(L.rng(1));
   st.m.x = st.level.flag * T - 4; st.m.y = (GROUND - 6) * T; st.m.vy = 0; st.timeLeft = 100.4;
   L.step(st, 0.01, {});
   assert.strictEqual(st.phase, 'clear');
+  assert.strictEqual(st.clearPhase, 'slide');
   assert.ok(st.flagPts >= 100);
-  assert.strictEqual(st.bonus, 100 * L.POINTS.timePerSec, 'one hundred whole seconds were left');
-  assert.ok(st.score >= st.flagPts + 100 * 50, 'time bonus counted');
-  const high = L.newGame(L.rng(1)); high.m.x = high.level.flag * T - 4; high.m.y = 2 * T; L.step(high, 0.01, {});
-  const low = L.newGame(L.rng(1)); low.m.x = low.level.flag * T - 4; low.m.y = (GROUND - 3) * T; L.step(low, 0.01, {});
-  assert.ok(high.flagPts > low.flagPts, 'grabbing it higher is worth more');
-  run(st, L.CLEAR_TIME + 0.2);
-  assert.strictEqual(st.stage, 2);
+  assert.strictEqual(st.bonus, 100 * L.POINTS.timePerUnit, 'one hundred whole units were left');
+  const scoreAtGrab = st.score;
+  const seen = [st.clearPhase], y0 = st.m.y;
+  for (let i = 0; i < 2000 && st.phase === 'clear'; i++) { L.step(st, 0.01, {}); if (seen[seen.length - 1] !== st.clearPhase) seen.push(st.clearPhase); if (st.clearPhase === 'slide') assert.ok(st.m.y >= y0); }
+  assert.deepStrictEqual(seen.slice(0, 5), ['slide', 'hang', 'walk', 'count', 'wait']);
+  assert.strictEqual(st.stage, 2, 'moved on to the next stage');
   assert.strictEqual(st.phase, 'play');
   assert.strictEqual(st.m.size, 'small');
-  assert.ok(st.score > 0, 'score carries over');
+  assert.ok(st.score >= scoreAtGrab + 100 * L.POINTS.timePerUnit - L.POINTS.timePerUnit, 'the remaining time turned into points');
 });
 
-test('clearing the last stage wins the game', () => {
+test('grabbing the flag higher is worth more, and the time bonus never counts twice', () => {
+  const high = L.newGame(L.rng(1)); high.m.x = high.level.flag * T - 4; high.m.y = 2 * T; L.step(high, 0.01, {});
+  const low = L.newGame(L.rng(1)); low.m.x = low.level.flag * T - 4; low.m.y = (GROUND - 3) * T; L.step(low, 0.01, {});
+  assert.ok(high.flagPts > low.flagPts);
+  assert.strictEqual(high.flagPts, L.POINTS.flag[L.POINTS.flag.length - 1]);
+  const st = L.newGame(L.rng(1)); st.m.x = st.level.flag * T - 4; st.m.y = (GROUND - 4) * T; st.timeLeft = 50; L.step(st, 0.01, {});
+  const after = st.score;
+  for (let i = 0; i < 400 && st.phase === 'clear'; i++) L.step(st, 0.01, {});
+  assert.ok(st.score - after <= 50 * L.POINTS.timePerUnit, 'at most the time that was left');
+  assert.ok(st.score - after >= 49 * L.POINTS.timePerUnit);
+});
+
+test('clearing the last stage wins the game after the finish', () => {
   const st = L.newGame(L.rng(1), 4);
   st.m.x = st.level.flag * T - 4; st.m.y = (GROUND - 4) * T; L.step(st, 0.01, {});
   assert.ok(st.won);
-  assert.ok(evs(st, 'win').length === 1);
-  run(st, L.CLEAR_TIME + 0.2);
+  const types = [];
+  for (let i = 0; i < 3000 && st.phase !== 'over'; i++) { L.step(st, 0.01, {}); types.push(...st.events.map((e) => e.t)); }
   assert.strictEqual(st.phase, 'over');
+  assert.ok(types.includes('win') && types.includes('over'));
 });
 
 test('running out of time kills, dying restarts the stage as small mario, and no lives left ends the game', () => {
@@ -433,4 +446,200 @@ test('random play never breaks the rules on any stage (fuzz)', () => {
       for (const e of st.enemies) assert.ok(Number.isFinite(e.x) && Number.isFinite(e.y));
     }
   }
+});
+
+// ---------- 원작에 가깝게 고친 것 ----------
+test('acceleration is gradual like the original: it takes about three quarters of a second to reach walking speed', () => {
+  const st = world();
+  run(st, 0.3, { right: true });
+  assert.ok(st.m.vx < L.WALK * 0.6, `still gaining speed after 0.3s (${st.m.vx})`);
+  run(st, 0.6, { right: true });
+  assert.ok(st.m.vx >= L.WALK - 1, 'at walking speed after about a second');
+  const r = world();
+  run(r, 0.5, { right: true, run: true });
+  const walkOnly = world(); run(walkOnly, 0.5, { right: true });
+  assert.ok(r.m.vx > walkOnly.m.vx, 'running accelerates faster');
+});
+
+test('turning around on the ground skids to a stop before going the other way', () => {
+  const st = world();
+  run(st, 2, { right: true, run: true });
+  const v0 = st.m.vx;
+  L.step(st, 0.05, { left: true, run: true });
+  assert.ok(st.m.skid, 'skidding');
+  assert.ok(st.m.vx > 0 && st.m.vx < v0, 'slowing but still moving right');
+  assert.strictEqual(st.m.face, 1, 'still facing right while skidding');
+  const t0 = st.time;
+  for (let i = 0; i < 300 && st.m.vx > 0; i++) L.step(st, 0.01, { left: true, run: true });
+  assert.ok(st.time - t0 < 0.8, 'the skid is quick');
+  run(st, 0.5, { left: true, run: true });
+  assert.ok(st.m.vx < 0 && st.m.face === -1, 'now going left');
+});
+
+test('in the air the speed is kept without input and he can still steer a little', () => {
+  const st = world();
+  run(st, 1.5, { right: true });
+  L.step(st, 0.01, { right: true, jump: true, jumpHeld: true });
+  const v0 = st.m.vx;
+  run(st, 0.2, { jumpHeld: true });
+  assert.ok(Math.abs(st.m.vx - v0) < 1, 'no slowing down in the air');
+  run(st, 0.2, { left: true, jumpHeld: true });
+  assert.ok(st.m.vx < v0, 'steering left in the air slows him');
+});
+
+test('a running jump goes higher and farther than a walking jump, and falling has a top speed', () => {
+  const apex = (input) => {
+    const st = world(); run(st, 2, input);
+    L.step(st, 0.01, { ...input, jump: true, jumpHeld: true });
+    let top = st.m.y; const x0 = st.m.x; let landed = false;
+    for (let i = 0; i < 400 && !landed; i++) { L.step(st, 0.01, { ...input, jumpHeld: true }); top = Math.min(top, st.m.y); landed = st.m.onGround; }
+    return { h: GROUND * T - st.m.h - top, d: st.m.x - x0 };
+  };
+  const walk = apex({ right: true }), fast = apex({ right: true, run: true });
+  assert.ok(fast.h > walk.h + 8, `running jump (${fast.h}) is higher than a walking jump (${walk.h})`);
+  assert.ok(fast.d > walk.d + 30, 'and farther');
+  const fall = world(); fall.m.y = 0; fall.m.onGround = false; fall.tiles[GROUND][5] = '.'; 
+  run(fall, 0.5);
+  assert.ok(fall.m.vy <= L.MAXFALL + 0.001);
+});
+
+test('the time limit counts down in game units, 2.5 per real second, with a hurry up warning', () => {
+  const st = L.newGame(L.rng(1));
+  st.m.invuln = 1e9;
+  const t0 = st.timeLeft;
+  run(st, 2);
+  assert.ok(Math.abs((t0 - st.timeLeft) - 5) < 0.2, `lost ${t0 - st.timeLeft} units in two seconds`);
+  st.timeLeft = L.HURRY_AT + 0.02;
+  const types = [];
+  for (let i = 0; i < 10; i++) { L.step(st, 0.01, {}); types.push(...st.events.map((e) => e.t)); }
+  assert.strictEqual(types.filter((t) => t === 'hurry').length, 1);
+  run(st, 5);
+  assert.strictEqual(L.newGame(L.rng(1), 1, { tutorial: true }).hurried, false);
+});
+
+test('a koopa shell that is left alone comes back as a walking koopa', () => {
+  const st = world(); const k = koopa(st, 300); k.state = 'shell'; k.h = 12; k.y += 4; k.vx = 0; k.timer = 0;
+  st.m.x = 2 * T;
+  run(st, L.SHELL_REVIVE - 1.5);
+  assert.strictEqual(k.state, 'shell');
+  run(st, 1.5 + 0.2);
+  assert.strictEqual(k.state, 'walk');
+  assert.strictEqual(k.h, L.ENEMY.koopa.h);
+  assert.ok(k.vx !== 0);
+  assert.strictEqual(k.y + k.h, GROUND * T, 'standing on the ground again');
+});
+
+test('kicking a shell is worth 400 and chains of enemies knocked out by one shell are worth more each time', () => {
+  const st = world(); const k = koopa(st, 100); k.state = 'shell'; k.h = 12; k.y += 4; k.vx = 0;
+  st.m.x = k.x - st.m.w + 2; L.step(st, 0.02, {});
+  assert.strictEqual(k.state, 'shellMove');
+  assert.strictEqual(st.score, L.POINTS.kick);
+  const pts = [];
+  k.x = 100; k.vx = L.SHELL_SPEED; st.m.x = 2 * T; st.m.invuln = 99;
+  for (let i = 0; i < 4; i++) goomba(st, 110 + i * 24, GROUND * T - 12, 0);
+  for (let i = 0; i < 200; i++) { L.step(st, 0.01, {}); for (const e of evs(st, 'kill')) pts.push(e.pts); }
+  assert.deepStrictEqual(pts.slice(0, 4), L.SHELL_CHAIN.slice(0, 4), 'each one worth more than the one before');
+});
+
+test('stomping many enemies in a row eventually gives an extra life', () => {
+  const st = world();
+  const lives0 = st.lives;
+  for (let i = 0; i < L.STOMP_CHAIN.length + 1; i++) {
+    const g = goomba(st, 100); st.m.x = 98; st.m.y = g.y - st.m.h + 2; st.m.vy = 120; st.m.onGround = false;
+    L.step(st, 0.02, {});
+  }
+  assert.strictEqual(st.lives, lives0 + 1, 'the eleventh stomp is a 1up');
+  assert.ok(st.score >= L.STOMP_CHAIN.reduce((a, b) => a + b, 0));
+  assert.deepStrictEqual(L.STOMP_CHAIN.slice(0, 4), [100, 200, 400, 500]);
+});
+
+test('a star makes mario unhurtable and knocks out enemies he touches, for ten seconds', () => {
+  const st = world(); put(st, 8, 7, '*');
+  st.m.x = 8 * T + 2; st.m.y = 8 * T + 6; st.m.vy = -120; run(st, 0.1, { jumpHeld: true });
+  run(st, 0.6);
+  const it = st.items.find((i) => i.type === 'star');
+  assert.ok(it, 'a star came out');
+  st.m.x = it.x - 4; st.m.y = it.y - st.m.h + 12; st.m.vy = 0; L.step(st, 0.01, {});
+  assert.ok(st.m.star > 9);
+  const g1 = goomba(st, st.m.x + 4, GROUND * T - 12, 0), g2 = goomba(st, st.m.x + 4, GROUND * T - 12, 0);
+  st.m.x = 20 * T; g1.x = st.m.x + 2; g2.x = st.m.x + 2; st.m.y = GROUND * T - st.m.h;
+  const pts = [];
+  L.step(st, 0.01, {}); for (const e of evs(st, 'kill')) pts.push(e.pts);
+  assert.strictEqual(st.phase, 'play', 'unhurt');
+  assert.strictEqual(g1.state, 'dead'); assert.strictEqual(g2.state, 'dead');
+  assert.deepStrictEqual(pts, [L.STOMP_CHAIN[0], L.STOMP_CHAIN[1]]);
+  run(st, L.STAR_TIME + 0.5);
+  assert.strictEqual(st.m.star, 0);
+  goomba(st, st.m.x + 4, GROUND * T - 12, 0);
+  L.step(st, 0.01, {});
+  assert.strictEqual(st.phase, 'dying', 'vulnerable again');
+});
+
+test('a 1up block gives a green mushroom that adds a life', () => {
+  const st = world(); put(st, 8, 7, '1');
+  st.m.x = 8 * T + 2; st.m.y = 8 * T + 6; st.m.vy = -120; run(st, 0.1, { jumpHeld: true });
+  run(st, 0.6);
+  const it = st.items.find((i) => i.type === '1up');
+  assert.ok(it);
+  const lives0 = st.lives;
+  st.m.x = it.x - 4; st.m.y = it.y - st.m.h + 12; st.m.vy = 0; L.step(st, 0.01, {});
+  assert.strictEqual(st.lives, lives0 + 1);
+  assert.strictEqual(st.m.size, 'small', 'no growing');
+});
+
+test('a coin block gives a coin per hit up to ten, and runs out after a few seconds', () => {
+  const st = world(); put(st, 8, 7, '$');
+  for (let i = 0; i < 4; i++) { st.m.x = 8 * T + 2; st.m.y = 8 * T + 6; st.m.vy = -120; st.m.onGround = false; run(st, 0.1, { jumpHeld: true }); run(st, 0.5); }
+  assert.strictEqual(st.coins, 4, 'one coin for each of four hits');
+  assert.strictEqual(st.tiles[7][8], '$', 'still a coin block');
+  run(st, L.COIN_BLOCK_TIME + 0.5);
+  assert.strictEqual(st.tiles[7][8], 'U', 'used up after the time is over');
+  const full = world(); put(full, 8, 7, '$');
+  for (let i = 0; i < 14; i++) { full.m.x = 8 * T + 2; full.m.y = 8 * T + 6; full.m.vy = -120; full.m.onGround = false; run(full, 0.1, { jumpHeld: true }); run(full, 0.15); }
+  assert.strictEqual(full.coins, L.COIN_BLOCK_MAX, 'ten coins at most');
+  assert.strictEqual(full.tiles[7][8], 'U');
+});
+
+test('stages: special blocks and plants are placed sensibly', () => {
+  const count = (s, c) => s.tiles.flat().filter((t) => t === c).length;
+  assert.ok(L.STAGES.some((s) => count(s, '*') >= 1), 'a star somewhere');
+  assert.ok(L.STAGES.some((s) => count(s, '1') >= 1), 'a 1up somewhere');
+  assert.ok(L.STAGES.some((s) => count(s, '$') >= 1), 'a coin block somewhere');
+  assert.strictEqual(L.STAGES[0].plants.length, 0, 'the first stage has no plants');
+  for (const s of L.STAGES) for (const p of s.plants) {
+    assert.strictEqual(s.tiles[Math.round(p.topY / T)][p.x], 'P', `${s.name}: a plant sits on a pipe top`);
+    assert.strictEqual(s.tiles[Math.round(p.topY / T)][p.x + 1], 'P');
+  }
+});
+
+test('a plant rises out of its pipe, stays up for a while and goes back down, and it hurts', () => {
+  const st = world(); put(st, 20, GROUND - 2, 'P'); put(st, 21, GROUND - 2, 'P'); put(st, 20, GROUND - 1, 'p'); put(st, 21, GROUND - 1, 'p');
+  st.plants = [{ id: 1, x: 20 * T + 10, w: L.PLANT.w, h: L.PLANT.h, topY: (GROUND - 2) * T, pipeX: 21 * T, state: 'down', timer: 0, extent: 0, y: (GROUND - 2) * T, dead: false }];
+  st.m.x = 4 * T; st.m.invuln = 1e9;
+  const p = st.plants[0];
+  run(st, L.PLANT.down - 0.2);
+  assert.strictEqual(p.extent, 0, 'still hidden');
+  run(st, L.PLANT.rise + 0.4);
+  assert.ok(p.extent > 0.9, 'out of the pipe');
+  run(st, L.PLANT.up + L.PLANT.sink + 0.2);
+  assert.ok(p.extent < 0.3 || p.state === 'down', 'going back down');
+  const hit = world(); put(hit, 20, GROUND - 2, 'P'); put(hit, 21, GROUND - 2, 'P');
+  hit.plants = [{ id: 1, x: 20 * T + 10, w: L.PLANT.w, h: L.PLANT.h, topY: (GROUND - 2) * T, pipeX: 21 * T, state: 'up', timer: 0, extent: 1, y: (GROUND - 2) * T - L.PLANT.h, dead: false }];
+  hit.m.x = 20 * T + 8; hit.m.y = (GROUND - 2) * T - L.PLANT.h - hit.m.h + 4; hit.m.vy = 0; hit.m.invuln = 0; hit.m.onGround = false;
+  L.step(hit, 0.01, {});
+  assert.strictEqual(hit.phase, 'dying', 'touching a plant that is up kills small mario');
+});
+
+test('a plant stays down while mario is right next to the pipe, and fire or a star removes it', () => {
+  const st = world(); st.plants = [{ id: 1, x: 20 * T + 10, w: L.PLANT.w, h: L.PLANT.h, topY: (GROUND - 2) * T, pipeX: 21 * T, state: 'down', timer: 0, extent: 0, y: (GROUND - 2) * T, dead: false }];
+  put(st, 20, GROUND - 2, 'P'); put(st, 21, GROUND - 2, 'P'); put(st, 20, GROUND - 1, 'p'); put(st, 21, GROUND - 1, 'p');
+  st.m.x = 19 * T - 4; st.m.y = GROUND * T - st.m.h; st.m.invuln = 1e9;
+  run(st, 10);
+  assert.strictEqual(st.plants[0].extent, 0, 'never comes out with mario standing next to it');
+  const f = world(); L.setSize(f, 'fire'); f.m.invuln = 1e9;
+  f.plants = [{ id: 1, x: 12 * T, w: L.PLANT.w, h: L.PLANT.h, topY: (GROUND - 2) * T, pipeX: 12 * T + 6, state: 'up', timer: 0, extent: 1, y: (GROUND - 2) * T - L.PLANT.h, dead: false }];
+  f.m.x = 5 * T; f.m.face = 1; f.fireballs.push({ id: 9, x: 12 * T - 4, y: (GROUND - 2) * T - 8, w: 6, h: 6, vx: 190, vy: 0, life: 2 });
+  L.step(f, 0.02, {});
+  assert.strictEqual(f.plants.length, 0, 'a fireball removes the plant');
+  assert.ok(f.score >= L.POINTS.plant);
 });
