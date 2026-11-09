@@ -851,3 +851,48 @@ test('a walking jump lands on a block four tiles up, a running jump on one five 
   const apex = (v, g) => v * v / (2 * g);
   assert.ok(apex(L.JUMP_SLOW, L.G_HOLD_SLOW) >= 4 * T + 4, 'the walking jump clears four tiles with room to spare');
 });
+
+test('on every stage the last staircase is eight high and right next to the pole, and the top of the pole can be grabbed', () => {
+  for (const s of L.STAGES) {
+    const top = s.flag - 3;
+    let h = 0; for (let y = GROUND - 1; y >= 0 && s.tiles[y][top] === 'S'; y--) h++;
+    assert.strictEqual(h, 8, `${s.name}: eight steps up`);
+    assert.strictEqual(s.tiles[GROUND - 9][top + 1], '.', `${s.name}: open air above the top step`);
+    for (let y = 0; y < 3; y++) for (let x = top - 8; x <= s.flag + 2; x++) assert.notStrictEqual(s.tiles[y][x], '#', `${s.name}: no ceiling near the pole`);
+    assert.strictEqual(s.tiles[1][s.flag], 'f', 'the golden ball is at the top of the pole');
+  }
+});
+
+test('a jump from the top step grabs the top of the pole for the most points, on every stage', () => {
+  for (let stage = 1; stage <= L.STAGES.length; stage++) {
+    const lv = L.STAGES[stage - 1], top = lv.flag - 3;
+    let best = 0;
+    for (const run of [false, true]) for (let off = 0; off <= 30; off += 2) {
+      const st = L.newGame(L.rng(1), stage); st.enemies = []; st.plants = []; st.m.invuln = 99;
+      st.m.x = top * T + 2; st.m.y = (GROUND - 8) * T - st.m.h; st.m.onGround = true; st.camX = Math.max(0, st.m.x - 96);
+      let jumped = false;
+      for (let i = 0; i < 500 && st.phase === 'play' && st.m.y < 400; i++) {
+        const j = !jumped && st.m.onGround && st.m.x > top * T + off;
+        L.step(st, 1 / 60, { right: true, run, jump: j, jumpHeld: true }); if (j) jumped = true;
+      }
+      if (st.phase === 'clear') best = Math.max(best, st.flagPts);
+    }
+    assert.strictEqual(best, L.POINTS.flag[L.POINTS.flag.length - 1], `${lv.name}: the top of the pole is within reach`);
+  }
+});
+
+test('running up the last staircase and jumping off the top also finishes with the most points', () => {
+  for (let stage = 1; stage <= L.STAGES.length; stage++) {
+    const lv = L.STAGES[stage - 1], seg = lv.ground.find(([a, b]) => lv.flag >= a && lv.flag <= b);
+    const st = L.newGame(L.rng(1), stage); st.enemies = []; st.plants = []; st.m.invuln = 99;
+    st.m.x = Math.max(seg[0] + 1, lv.flag - 14) * T; st.m.y = GROUND * T - st.m.h; st.camX = st.m.x - 96;
+    for (let i = 0; i < 1500 && st.phase === 'play'; i++) {
+      const m = st.m;
+      const ahead = L.solid(st, Math.floor((m.x + m.w + 8) / T), Math.floor((m.y + m.h - 2) / T));
+      const atTop = m.onGround && Math.abs(m.y + m.h - (GROUND - 8) * T) < 2;
+      L.step(st, 1 / 60, { right: true, run: true, jump: (ahead || atTop) && m.onGround, jumpHeld: true });
+    }
+    assert.strictEqual(st.phase, 'clear', `${lv.name}: cleared`);
+    assert.strictEqual(st.flagPts, L.POINTS.flag[L.POINTS.flag.length - 1], `${lv.name}: top points`);
+  }
+});
