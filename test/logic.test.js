@@ -831,3 +831,23 @@ test('in the practice mode a hit does not shrink big mario so the crouch and pip
   const real = L.newGame(L.rng(1)); L.setSize(real, 'big'); real.m.invuln = 0; L.hurt(real);
   assert.strictEqual(real.m.size, 'small', 'in the real game he does shrink');
 });
+
+test('a walking jump lands on a block four tiles up, a running jump on one five tiles up, and six tiles is out of reach', () => {
+  const tryLand = (runInput, row) => {
+    const st = world({ w: 60, x: runInput ? 6 : 10 });
+    for (let x = 20; x <= 24; x++) put(st, x, row, 'B');
+    st.m.invuln = 99;
+    for (let i = 0; i < 1500; i++) {
+      const near = st.m.x > 20 * T - 40 - (runInput ? 20 : 0);
+      L.step(st, 1 / 60, { right: true, run: runInput, jump: near && st.m.onGround && st.m.x < 20 * T - 6, jumpHeld: true });
+      if (st.m.onGround && Math.abs(st.m.y + st.m.h - row * T) < 1 && st.m.x > 19 * T) return true;
+    }
+    return false;
+  };
+  assert.ok(tryLand(false, GROUND - 4), 'walking: four tiles up (the usual row of blocks)');
+  assert.ok(tryLand(true, GROUND - 5), 'running: five tiles up');
+  assert.ok(!tryLand(true, GROUND - 6), 'six tiles up is too high');
+  assert.ok(!tryLand(false, GROUND - 5), 'a plain walking jump does not reach five tiles');
+  const apex = (v, g) => v * v / (2 * g);
+  assert.ok(apex(L.JUMP_SLOW, L.G_HOLD_SLOW) >= 4 * T + 4, 'the walking jump clears four tiles with room to spare');
+});

@@ -9,7 +9,7 @@ const LOGIC_SM = (() => {
   const SOLID = new Set(['#', 'B', '?', 'M', '*', '1', '$', 'U', 'S', 'P', 'p']);
   // --- 달리기·점프 (원작: 걷기 1.56px/f, 달리기 2.56px/f, 가속 0.037/0.056, 브레이크 0.05, 미끄러짐 0.10) ---
   const WALK = 93.75, RUN = 153.75, ACC_WALK = 133, ACC_RUN = 200, DECEL = 183, SKID = 366;
-  const JUMP_SLOW = 240, JUMP_FAST = 300, G_HOLD_SLOW = 450, G_HOLD_FAST = 563, G_FALL = 1575, MAXFALL = 240;   // 점프 버튼을 누르고 있으면 올라가는 동안 중력이 약하다
+  const JUMP_SLOW = 240, JUMP_FAST = 300, G_HOLD_SLOW = 400, G_HOLD_FAST = 510, G_FALL = 1575, MAXFALL = 240;   // 점프 버튼을 누르고 있으면 올라가는 동안 중력이 약하다
   const SIZE = { small: { w: 12, h: 14 }, big: { w: 12, h: 28 }, fire: { w: 12, h: 28 } };
   const START_LIVES = 3, DYING = 2, INVULN = 2, STAR_TIME = 10;
   const CROUCH_H = 16, WARP_TIME = 0.7;                 // 앉은 키 · 파이프로 들어가고 나오는 데 걸리는 시간
