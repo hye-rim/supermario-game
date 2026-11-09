@@ -643,3 +643,191 @@ test('a plant stays down while mario is right next to the pipe, and fire or a st
   assert.strictEqual(f.plants.length, 0, 'a fireball removes the plant');
   assert.ok(f.score >= L.POINTS.plant);
 });
+
+// ---------- 앉기와 파이프 ----------
+// 파이프 두 개(들어가는 것 20, 나오는 것 40)가 있는 시험용 세상
+function pipeWorld() {
+  const st = world({ w: 60 });
+  const pipe = (x, h) => { for (let k = 0; k < 2; k++) for (let i = 1; i <= h; i++) st.tiles[GROUND - i][x + k] = i === h ? 'P' : 'p'; };
+  pipe(20, 2); pipe(40, 3);
+  st.level = { ...st.level, warps: [{ x: 20, topY: (GROUND - 2) * T, exitX: 40, exitTopY: (GROUND - 3) * T }], plants: [] };
+  st.plants = [];
+  return st;
+}
+const onPipe = (st) => { st.m.x = 20 * T + 10; st.m.y = (GROUND - 2) * T - st.m.h; st.m.vx = 0; st.m.vy = 0; st.m.onGround = true; };
+
+test('only big mario can crouch: pressing down shrinks his box, keeps his feet where they were, and he stands up again', () => {
+  const small = world();
+  L.step(small, 0.02, { down: true });
+  assert.strictEqual(small.m.crouch, false, 'small mario does not crouch');
+  const st = world(); setBig(st);
+  const feet = st.m.y + st.m.h;
+  L.step(st, 0.02, { down: true });
+  assert.strictEqual(st.m.crouch, true);
+  assert.strictEqual(st.m.h, L.CROUCH_H);
+  assert.strictEqual(st.m.y + st.m.h, feet, 'feet stay put');
+  assert.strictEqual(evs(st, 'crouch').length, 1);
+  L.step(st, 0.02, {});
+  assert.strictEqual(st.m.crouch, false);
+  assert.strictEqual(st.m.h, L.SIZE.big.h);
+  assert.strictEqual(st.m.y + st.m.h, feet);
+});
+
+test('while crouching he cannot walk but slides on with the speed he had and then stops', () => {
+  const st = world(); setBig(st);
+  run(st, 2, { right: true, run: true });
+  const x0 = st.m.x;
+  L.step(st, 0.02, { down: true, right: true });
+  assert.ok(st.m.crouch);
+  run(st, 0.5, { down: true, right: true });
+  assert.ok(st.m.vx < L.RUN, 'pressing right does not speed him up while crouching');
+  run(st, 1.5, { down: true });
+  assert.strictEqual(st.m.vx, 0, 'stopped');
+  const slid = st.m.x - x0;
+  assert.ok(slid > 30 && slid < 160, `slid ${slid}px`);
+  const still = world(); setBig(still); L.step(still, 0.02, { down: true });
+  run(still, 1, { down: true, right: true });
+  assert.strictEqual(still.m.x, 5 * T, 'cannot start walking while crouched');
+});
+
+test('under a low ceiling he stays crouched until he is out from under it', () => {
+  const st = world(); setBig(st);
+  for (let x = 8; x <= 10; x++) st.tiles[GROUND - 2][x] = 'S';           // 땅에서 한 칸 높이만 비어 있는 낮은 굴
+  st.m.x = 9 * T; st.m.vx = 0;
+  L.step(st, 0.02, { down: true });
+  assert.ok(st.m.crouch);
+  L.step(st, 0.02, {});
+  assert.ok(st.m.crouch, 'cannot stand up under the ceiling');
+  st.m.x = 12 * T;
+  L.step(st, 0.02, {});
+  assert.strictEqual(st.m.crouch, false, 'stands up once he is clear');
+  const small = world();
+  small.m.x = 9 * T;
+  for (let x = 8; x <= 10; x++) small.tiles[GROUND - 2][x] = 'S';
+  run(small, 0.3, { right: true });
+  assert.ok(small.m.x > 9 * T, 'small mario fits in the low tunnel without crouching');
+});
+
+test('a crouched mario can still jump, cannot throw fire, and shrinks (standing) when hurt', () => {
+  const st = world(); L.setSize(st, 'fire');
+  L.step(st, 0.02, { down: true });
+  L.step(st, 0.02, { down: true, jump: true, jumpHeld: true });
+  assert.ok(!st.m.onGround, 'jumped');
+  const f = world(); L.setSize(f, 'fire'); L.step(f, 0.02, { down: true });
+  L.step(f, 0.02, { down: true, fire: true });
+  assert.strictEqual(f.fireballs.length, 0, 'no fireballs while crouching');
+  const h = world(); setBig(h); L.step(h, 0.02, { down: true });
+  goomba(h, h.m.x + 6, GROUND * T - 12, 0);
+  L.step(h, 0.02, { down: true });
+  assert.strictEqual(h.phase, 'play');
+  assert.strictEqual(h.m.size, 'small');
+  assert.strictEqual(h.m.crouch, false);
+  assert.strictEqual(h.m.h, L.SIZE.small.h);
+});
+
+test('pressing down on top of a warp pipe sinks mario into it and takes him to the bonus room', () => {
+  const st = pipeWorld(); onPipe(st);
+  const types = [];
+  L.step(st, 0.02, { down: true }); types.push(...st.events.map((e) => e.t));
+  assert.strictEqual(st.phase, 'warp');
+  assert.ok(types.includes('warp'));
+  let sank = false;
+  for (let i = 0; i < 40 && st.phase === 'warp'; i++) { L.step(st, 0.02, {}); if (st.m.y > (GROUND - 2) * T - st.m.h + 4) sank = true; }
+  assert.ok(sank, 'he goes down into the pipe');
+  assert.strictEqual(st.phase, 'play');
+  assert.strictEqual(st.inRoom, true);
+  assert.strictEqual(st.w, L.ROOM.w);
+  assert.strictEqual(st.enemies.length, 0);
+  assert.strictEqual(st.m.onGround, true);
+  assert.strictEqual(st.m.y + st.m.h, GROUND * T, 'standing on the room floor');
+});
+
+test('only a warp pipe, standing on its top, with down pressed warps; elsewhere down does nothing special', () => {
+  const beside = pipeWorld(); beside.m.x = 18 * T; beside.m.y = GROUND * T - beside.m.h; L.step(beside, 0.02, { down: true });
+  assert.strictEqual(beside.phase, 'play');
+  const air = pipeWorld(); onPipe(air); air.m.y -= 30; air.m.onGround = false; air.m.vy = 0; L.step(air, 0.02, { down: true });
+  assert.strictEqual(air.phase, 'play', 'not while in the air above the pipe');
+  const other = pipeWorld(); other.m.x = 40 * T + 10; other.m.y = (GROUND - 3) * T - other.m.h; other.m.onGround = true; L.step(other, 0.02, { down: true });
+  assert.strictEqual(other.phase, 'play', 'the exit pipe is not an entrance');
+  const noDown = pipeWorld(); onPipe(noDown); run(noDown, 0.5, {});
+  assert.strictEqual(noDown.phase, 'play', 'standing on it does nothing without pressing down');
+  assert.strictEqual(L.warpAt(noDown) !== null, true);
+});
+
+test('in the bonus room he collects coins and walking into the exit pipe brings him back to the exit pipe on the course', () => {
+  const st = pipeWorld(); onPipe(st);
+  const goombaOut = goomba(st, 700); const gx = goombaOut.x;          // 나오는 파이프보다 오른쪽에서 기다리는 굼바
+  const tilesBefore = st.tiles;
+  L.step(st, 0.02, { down: true }); run(st, 1);
+  assert.ok(st.inRoom);
+  const coins0 = st.coins;
+  st.m.x = 2 * T + 2; run(st, 1.2, { right: true });
+  assert.ok(st.coins > coins0, 'picked up some coins along the floor');
+  st.m.x = 12 * T; st.m.vx = 0;
+  for (let i = 0; i < 300 && st.inRoom; i++) L.step(st, 0.01, { right: true });
+  assert.strictEqual(st.inRoom, false, 'back on the course');
+  assert.strictEqual(st.phase, 'warp', 'rising out of the exit pipe');
+  assert.strictEqual(st.m.x + st.m.w / 2, 40 * T + T, 'centered on the exit pipe');
+  assert.strictEqual(st.tiles, tilesBefore, 'the course is exactly as it was');
+  assert.strictEqual(st.w, 60);
+  assert.ok(st.enemies.includes(goombaOut) && goombaOut.x === gx, 'enemies waited where they were');
+  run(st, L.WARP_TIME + 0.2);
+  assert.strictEqual(st.m.x + st.m.w / 2, 40 * T + T, 'still centered on the exit pipe');
+  assert.ok(Math.abs(st.m.y + st.m.h - (GROUND - 3) * T) < 1.5, 'standing on top of the exit pipe');
+  assert.strictEqual(st.phase, 'play');
+});
+
+test('the course waits while mario is in the room, the clock keeps running, and running out of time there still kills', () => {
+  const st = pipeWorld(); onPipe(st); const e = goomba(st, 300, GROUND * T - 12, -30);
+  st.timeLeft = 300;
+  L.step(st, 0.02, { down: true }); run(st, 1);
+  assert.ok(st.inRoom);
+  const ex = e.x, t0 = st.timeLeft;
+  run(st, 2);
+  assert.strictEqual(e.x, ex, 'the enemies on the course are frozen');
+  assert.ok(st.timeLeft < t0 - 4, 'but the time goes on');
+  st.timeLeft = 0.02; run(st, 0.2);
+  assert.strictEqual(st.phase, 'dying');
+  run(st, L.DYING + 0.2);
+  assert.strictEqual(st.inRoom, false, 'the stage starts over on the surface');
+  assert.strictEqual(st.w, st.level.w);
+});
+
+test('big mario can warp too and fireballs from the course are gone in the room', () => {
+  const st = pipeWorld(); setBig(st); L.setSize(st, 'fire'); onPipe(st);
+  st.fireballs.push({ id: 7, x: 100, y: 100, w: 6, h: 6, vx: 100, vy: 0, life: 3 });
+  L.step(st, 0.02, { down: true }); run(st, 1);
+  assert.ok(st.inRoom);
+  assert.strictEqual(st.fireballs.length, 0);
+  assert.strictEqual(st.m.size, 'fire');
+  assert.strictEqual(st.m.h, L.SIZE.fire.h);
+});
+
+test('stages: every warp pipe and exit pipe exists, the exit pipe has no plant, and the bonus room is valid', () => {
+  assert.ok(L.STAGES.some((s) => s.warps.length >= 1));
+  for (const s of L.STAGES) for (const w of s.warps) {
+    assert.strictEqual(s.tiles[Math.round(w.topY / T)][w.x], 'P', `${s.name}: entrance pipe`);
+    assert.strictEqual(s.tiles[Math.round(w.exitTopY / T)][w.exitX], 'P', `${s.name}: exit pipe`);
+    assert.notStrictEqual(w.x, w.exitX);
+    assert.ok(!s.plants.some((p) => p.x === w.exitX), `${s.name}: no plant on the exit pipe`);
+    assert.ok(s.ground.some(([a, b]) => w.x >= a && w.x <= b) && s.ground.some(([a, b]) => w.exitX >= a && w.exitX <= b));
+  }
+  const room = L.ROOM;
+  assert.strictEqual(room.tiles.length, L.ROWS);
+  assert.ok(room.tiles.every((r) => r.length === room.w));
+  assert.strictEqual(room.w * T, L.VW, 'the room fits the screen without scrolling');
+  for (let x = 0; x < room.w; x++) assert.strictEqual(room.tiles[GROUND][x], '#');
+  assert.strictEqual(room.tiles.flat().filter((t) => t === 'C').length, room.coins);
+  assert.strictEqual(room.tiles.flat().filter((t) => t === 'E').length, 4, 'a two by two exit pipe mouth');
+  assert.strictEqual(room.tiles[GROUND - 1][room.w - 1], 'E');
+});
+
+test('in the practice mode a hit does not shrink big mario so the crouch and pipe steps can still be done', () => {
+  const st = L.newGame(L.rng(1), 1, { tutorial: true, lives: 9 });
+  L.setSize(st, 'big'); st.m.invuln = 0;
+  L.hurt(st);
+  assert.strictEqual(st.m.size, 'big');
+  assert.ok(st.m.invuln > 0);
+  const real = L.newGame(L.rng(1)); L.setSize(real, 'big'); real.m.invuln = 0; L.hurt(real);
+  assert.strictEqual(real.m.size, 'small', 'in the real game he does shrink');
+});

@@ -4,7 +4,7 @@
 // 움직임 값은 원작 슈퍼마리오의 알려진 값(프레임당 픽셀 x 60)을 바탕으로 했다.
 const LOGIC_SM = (() => {
   const LV = (typeof module !== 'undefined' && module.exports) ? require('./levels.js') : LEVELS_SM;
-  const { T, ROWS, GROUND, STAGES } = LV;
+  const { T, ROWS, GROUND, STAGES, ROOM } = LV;
   const VW = 240, VH = ROWS * T;                      // 화면에 보이는 크기 240 x 208
   const SOLID = new Set(['#', 'B', '?', 'M', '*', '1', '$', 'U', 'S', 'P', 'p']);
   // --- 달리기·점프 (원작: 걷기 1.56px/f, 달리기 2.56px/f, 가속 0.037/0.056, 브레이크 0.05, 미끄러짐 0.10) ---
@@ -12,6 +12,7 @@ const LOGIC_SM = (() => {
   const JUMP_SLOW = 240, JUMP_FAST = 300, G_HOLD_SLOW = 450, G_HOLD_FAST = 563, G_FALL = 1575, MAXFALL = 240;   // 점프 버튼을 누르고 있으면 올라가는 동안 중력이 약하다
   const SIZE = { small: { w: 12, h: 14 }, big: { w: 12, h: 28 }, fire: { w: 12, h: 28 } };
   const START_LIVES = 3, DYING = 2, INVULN = 2, STAR_TIME = 10;
+  const CROUCH_H = 16, WARP_TIME = 0.7;                 // 앉은 키 · 파이프로 들어가고 나오는 데 걸리는 시간
   const TIME_RATE = 2.5, HURRY_AT = 100, COUNT_RATE = 100;   // 제한 시간은 '게임 단위': 실제 0.4초에 1 줄어든다 (원작처럼). 남은 시간은 1 당 50점
   const STOMP_CHAIN = [100, 200, 400, 500, 800, 1000, 2000, 4000, 5000, 8000];      // 그 다음은 1UP
   const SHELL_CHAIN = [500, 800, 1000, 2000, 4000, 5000, 8000];
@@ -54,12 +55,13 @@ const LOGIC_SM = (() => {
     st.items = []; st.fireballs = []; st.coinBlocks = {}; st.seq = 1000;
     st.m = makeMario(st, lv.start * T, 'small');
     st.stompChain = 0; st.starChain = 0; st.flagY = 2 * T; st.clearPhase = '';
+    st.inRoom = false; st.surface = null; st.warp = null;
     st.phase = 'play';
     emit(st, { t: 'stage', stage });
   }
   function makeMario(st, x, size) {
     const sz = SIZE[size];
-    return { x, y: GROUND * T - sz.h, w: sz.w, h: sz.h, vx: 0, vy: 0, size, face: 1, onGround: true, coyote: 0, invuln: 1, star: 0, jumpHeld: false, running: false, fireCool: 0, moved: false, dead: false, hidden: false, skid: false };
+    return { x, y: GROUND * T - sz.h, w: sz.w, h: sz.h, vx: 0, vy: 0, size, face: 1, onGround: true, coyote: 0, invuln: 1, star: 0, jumpHeld: false, running: false, fireCool: 0, moved: false, dead: false, hidden: false, skid: false, crouch: false };
   }
   function makeEnemy(type, x, y, id) {
     const d = ENEMY[type];
@@ -131,8 +133,19 @@ const LOGIC_SM = (() => {
   }
 
   // ---------- 마리오 ----------
+  function overlapsSolid(st, x, y, w, h) {
+    for (let ty = Math.floor(y / T); ty <= Math.floor((y + h - 0.001) / T); ty++) for (let tx = Math.floor(x / T); tx <= Math.floor((x + w - 0.001) / T); tx++) if (solid(st, tx, ty)) return true;
+    return false;
+  }
+  const canStand = (st) => { const m = st.m, H = SIZE[m.size].h; return !overlapsSolid(st, m.x, m.y + m.h - H, m.w, H); };
+  function setCrouch(st, on) {
+    const m = st.m, nh = on ? CROUCH_H : SIZE[m.size].h;
+    m.y += m.h - nh; m.h = nh; m.crouch = on;
+  }
   function setSize(st, size) {
-    const m = st.m, old = m.h, sz = SIZE[size];
+    const m = st.m;
+    if (m.crouch) { m.y += m.h - SIZE[m.size].h; m.h = SIZE[m.size].h; m.crouch = false; }
+    const old = m.h, sz = SIZE[size];
     m.size = size; m.w = sz.w; m.h = sz.h; m.y += old - sz.h;
     if (m.y < -40) m.y = -40;
   }
@@ -147,13 +160,19 @@ const LOGIC_SM = (() => {
     const m = st.m;
     if (m.invuln > 0 || m.star > 0 || m.dead) return;
     if (m.size === 'small') return die(st, 'enemy');
+    if (st.tutorial) { m.invuln = INVULN; return; }                        // 연습에서는 커진 채로 있게(앉기·파이프 단계를 해 볼 수 있게)
     setSize(st, 'small'); m.invuln = INVULN;
     emit(st, { t: 'shrink' });
   }
 
   function stepMario(st, h, input) {
     const m = st.m;
-    const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    // 앉기: 커진 마리오가 땅에서 ↓ 를 누르면 앉는다. 앉은 채로는 걷지 못하고 달리던 힘으로 미끄러진다. 놓을 때 머리 위가 막혀 있으면 계속 앉아 있는다
+    if (m.size !== 'small') {
+      if (input.down && !m.crouch && m.onGround) { setCrouch(st, true); emit(st, { t: 'crouch' }); }
+      else if (!input.down && m.crouch && canStand(st)) setCrouch(st, false);
+    }
+    const dir = m.crouch && m.onGround ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
     m.running = !!input.run;
     const maxV = m.running ? RUN : WALK, acc = m.running ? ACC_RUN : ACC_WALK;
     m.skid = false;
@@ -182,7 +201,7 @@ const LOGIC_SM = (() => {
     const g = m.vy < 0 ? (m.jumpHeld ? (m.jumpG || G_HOLD_SLOW) : G_FALL) : G_FALL;
     m.vy = Math.min(MAXFALL, m.vy + g * h);
     if (m.fireCool > 0) m.fireCool -= h;
-    if (input.fire && m.size === 'fire' && m.fireCool <= 0 && st.fireballs.length < 2) {
+    if (input.fire && m.size === 'fire' && !m.crouch && m.fireCool <= 0 && st.fireballs.length < 2) {
       st.fireballs.push({ id: ++st.seq, x: m.x + (m.face > 0 ? m.w : -6), y: m.y + 10, w: 6, h: 6, vx: m.face * 190, vy: 40, life: 3 });
       m.fireCool = 0.2; emit(st, { t: 'fire' });
     }
@@ -373,6 +392,55 @@ const LOGIC_SM = (() => {
     }
   }
 
+  // ---------- 파이프와 지하 보너스 방 ----------
+  function warpAt(st) {
+    const m = st.m;
+    if (st.inRoom) return null;
+    const cx = m.x + m.w / 2;
+    for (const w of st.level.warps) if (cx >= w.x * T + 2 && cx <= (w.x + 2) * T - 2 && Math.abs(m.y + m.h - w.topY) < 1.5) return w;
+    return null;
+  }
+  function startWarp(st, kind, w) {
+    const m = st.m;
+    st.phase = 'warp';
+    if (kind === 'in') {
+      if (m.crouch) { m.y += m.h - SIZE[m.size].h; m.h = SIZE[m.size].h; m.crouch = false; }
+      m.x = w.x * T + (2 * T - m.w) / 2; m.y = w.topY - m.h; m.vx = 0; m.vy = 0;
+      st.warp = { kind, t: 0, w, startY: m.y };
+    } else st.warp = { kind, t: 0, w, startY: w.exitTopY };
+    emit(st, { t: 'warp', kind });
+  }
+  function enterRoom(st, w) {
+    const m = st.m;
+    st.surface = { tiles: st.tiles, w: st.w, enemies: st.enemies, plants: st.plants, items: st.items, fireballs: st.fireballs, camX: st.camX, warp: w };
+    st.tiles = ROOM.tiles.map((r) => r.slice()); st.w = ROOM.w;
+    st.enemies = []; st.plants = []; st.items = []; st.fireballs = []; st.camX = 0; st.inRoom = true;
+    m.x = 2 * T; m.y = GROUND * T - m.h; m.vx = 0; m.vy = 0; m.onGround = true; m.crouch = false; m.invuln = Math.max(m.invuln, 0.3);
+    emit(st, { t: 'room' });
+  }
+  function leaveRoom(st) {
+    const m = st.m, sf = st.surface, w = sf.warp;
+    st.tiles = sf.tiles; st.w = sf.w; st.enemies = sf.enemies; st.plants = sf.plants; st.items = sf.items; st.fireballs = sf.fireballs; st.camX = sf.camX;
+    st.inRoom = false; st.surface = null;
+    m.x = w.exitX * T + (2 * T - m.w) / 2; m.y = w.exitTopY; m.vx = 0; m.vy = 0; m.onGround = true;
+    st.camX = Math.max(st.camX, Math.min(st.w * T - VW, m.x - 96));
+    startWarp(st, 'out', w);
+  }
+  function stepWarp(st, h) {
+    const m = st.m, wp = st.warp;
+    st.timeLeft -= TIME_RATE * h;
+    if (st.timeLeft <= 0) { st.timeLeft = 0; st.phase = 'play'; return die(st, 'time'); }
+    wp.t += h;
+    const k = Math.min(1, wp.t / WARP_TIME);
+    if (wp.kind === 'in') {
+      m.y = wp.startY + k * m.h;                                         // 파이프 속으로 가라앉는다
+      if (k >= 1) { enterRoom(st, wp.w); st.phase = 'play'; st.warp = null; }
+    } else {
+      m.y = wp.startY - k * m.h;                                         // 파이프에서 올라온다
+      if (k >= 1) { m.y = wp.w.exitTopY - m.h; st.phase = 'play'; st.warp = null; m.invuln = Math.max(m.invuln, 0.5); }
+    }
+  }
+
   // ---------- 한 걸음 ----------
   function step(st, dt, input = {}) {
     const h = Math.min(dt, 0.033);
@@ -390,6 +458,7 @@ const LOGIC_SM = (() => {
       return;
     }
     if (st.phase === 'clear') { stepClear(st, h); return; }
+    if (st.phase === 'warp') { stepWarp(st, h); return; }
     for (const cb of Object.keys(st.coinBlocks)) {                       // 동전 여러 개 블록은 시간이 지나면 쓴 블록
       st.coinBlocks[cb].t -= h;
       if (st.coinBlocks[cb].t <= 0) { const [x, y] = cb.split(',').map(Number); if (st.tiles[y][x] === '$') st.tiles[y][x] = 'U'; delete st.coinBlocks[cb]; }
@@ -399,6 +468,8 @@ const LOGIC_SM = (() => {
     if (st.timeLeft <= 0) { st.timeLeft = 0; return die(st, 'time'); }
     stepMario(st, h, input);
     if (st.phase !== 'play') return;
+    if (input.down && m.onGround && !m.dead) { const w = warpAt(st); if (w) { startWarp(st, 'in', w); return; } }     // 파이프 위에서 ↓
+    if (st.inRoom && input.right && m.onGround && tileAt(st, Math.floor((m.x + m.w) / T), Math.floor((m.y + m.h - 1) / T)) === 'E') { leaveRoom(st); return; }
     st.camX = Math.max(st.camX, Math.min(st.w * T - VW, m.x - 96));
     stepEnemies(st, h);
     stepPlants(st, h);
@@ -409,7 +480,8 @@ const LOGIC_SM = (() => {
   return {
     T, ROWS, GROUND, VW, VH, STAGES, SOLID, WALK, RUN, ACC_WALK, ACC_RUN, DECEL, SKID, JUMP_SLOW, JUMP_FAST, G_HOLD_SLOW, G_HOLD_FAST, G_FALL, MAXFALL, SIZE, START_LIVES, DYING, INVULN, STAR_TIME,
     TIME_RATE, HURRY_AT, COUNT_RATE, POINTS, STOMP_CHAIN, SHELL_CHAIN, ENEMY, SHELL_SPEED, SHELL_REVIVE, COIN_BLOCK_MAX, COIN_BLOCK_TIME, PLANT, FLAG, EXTRA_LIFE_COINS, EXTRA_LIFE_AT,
-    rng, newGame, startStage, step, tileAt, solid, hitBlock, hurt, die, setSize, addScore, makeEnemy, overlap,
+    CROUCH_H, WARP_TIME, ROOM,
+    rng, newGame, startStage, step, tileAt, solid, hitBlock, hurt, die, setSize, addScore, makeEnemy, overlap, setCrouch, canStand, warpAt,
   };
 })();
 if (typeof module !== 'undefined') module.exports = LOGIC_SM;

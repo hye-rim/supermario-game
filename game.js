@@ -68,6 +68,8 @@ const sfx = {
   over: () => melody([392, 330, 262, 196], 220, 'sawtooth', 0.06),
   tick: () => tone(300, 0.05, 'square', 0.03),
   hurry: () => melody([880, 660, 880, 660, 880], 90, 'square', 0.05),
+  crouch: () => tone(200, 0.06, 'triangle', 0.04, -60),
+  pipe: () => tone(260, 0.5, 'square', 0.04, -180),
   count: () => tone(1100, 0.03, 'square', 0.025),
   star: () => melody([784, 988, 1175, 988, 784], 60, 'square', 0.04),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
@@ -89,15 +91,15 @@ window.__sm = { get G() { return G; }, get state() { return state; }, L, setG(g)
 
 // ---------- 입력 ----------
 const keys = new Set();
-const pad = { left: false, right: false, run: false, jump: false };
-const K = { left: ['ArrowLeft', 'a', 'A'], right: ['ArrowRight', 'd', 'D'] };
+const pad = { left: false, right: false, down: false, run: false, jump: false };
+const K = { left: ['ArrowLeft', 'a', 'A'], right: ['ArrowRight', 'd', 'D'], down: ['ArrowDown', 's', 'S'] };
 const JUMP = [' ', 'z', 'Z', 'ArrowUp', 'w', 'W'], RUN = ['x', 'X', 'Shift'];
 const heldAny = (list) => list.some((k) => keys.has(k));
 let fireReq = 0;
 addEventListener('keydown', (e) => {
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { if (state === 'play') pause(); else if (state === 'paused') resume(); return; }
   if (e.key === 'm' || e.key === 'M') { toggleMute(); return; }
-  const mine = K.left.includes(e.key) || K.right.includes(e.key) || JUMP.includes(e.key) || RUN.includes(e.key);
+  const mine = K.left.includes(e.key) || K.right.includes(e.key) || K.down.includes(e.key) || JUMP.includes(e.key) || RUN.includes(e.key);
   if (mine) e.preventDefault();
   if ((e.key === ' ' || e.key === 'Enter') && (state === 'title' || state === 'over') && !e.repeat) { startGame(state === 'over' && G && !G.won ? G.stage : 1); return; }
   if (JUMP.includes(e.key) && !e.repeat) jumpReq = 0.12;
@@ -105,7 +107,7 @@ addEventListener('keydown', (e) => {
   keys.add(e.key);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key); });
-addEventListener('blur', () => { keys.clear(); pad.left = pad.right = pad.run = pad.jump = false; for (const b of document.querySelectorAll('#controls button')) b.classList.remove('on'); });
+addEventListener('blur', () => { keys.clear(); pad.left = pad.right = pad.down = pad.run = pad.jump = false; for (const b of document.querySelectorAll('#controls button')) b.classList.remove('on'); });
 
 function bindHold(el, on, off) {
   el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('on'); on(); });
@@ -114,10 +116,11 @@ function bindHold(el, on, off) {
 }
 bindHold($('leftBt'), () => { pad.left = true; }, () => { pad.left = false; });
 bindHold($('rightBt'), () => { pad.right = true; }, () => { pad.right = false; });
+bindHold($('downBt'), () => { pad.down = true; }, () => { pad.down = false; });
 bindHold($('runBt'), () => { pad.run = true; fireReq = 0.12; }, () => { pad.run = false; });
 bindHold($('jumpBt'), () => { pad.jump = true; jumpReq = 0.12; }, () => { pad.jump = false; });
 const readInput = () => ({
-  left: heldAny(K.left) || pad.left, right: heldAny(K.right) || pad.right,
+  left: heldAny(K.left) || pad.left, right: heldAny(K.right) || pad.right, down: heldAny(K.down) || pad.down,
   run: heldAny(RUN) || pad.run, jump: jumpReq > 0, jumpHeld: heldAny(JUMP) || pad.jump, fire: fireReq > 0,
 });
 
@@ -201,6 +204,9 @@ function handle(e) {
   }
   else if (e.t === 'hurry') { sfx.hurry(); showBanner('서둘러!', '시간이 얼마 안 남았어요', 1.6, '#ff6a6a'); }
   else if (e.t === 'tick') sfx.count();
+  else if (e.t === 'crouch') { sfx.crouch(); tutorialSignal('crouch'); }
+  else if (e.t === 'warp') { sfx.pipe(); if (e.kind === 'in') tutorialSignal('warp'); }
+  else if (e.t === 'room') showBanner('보너스 방!', '동전을 모아 오른쪽 파이프로 나가요', 2.2, '#ffd23a');
   else if (e.t === 'starEnd') sfx.shrink();
   else if (e.t === 'shrink') sfx.shrink();
   else if (e.t === 'stomp') { sfx.stomp(); tutorialSignal('stomp'); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#fff' }); }
@@ -224,21 +230,21 @@ const THEME = {
   sky: { sky: ['#2c7cfc', '#bce4fc'], ground: '#f0f0f8', top: '#ffffff', brick: '#e0b05a', hill: '#ffffff' },
   castle: { sky: ['#1a0a0a', '#3a1010'], ground: '#5a5a62', top: '#7a7a82', brick: '#8a5a4a', hill: '#2a1414' },
 };
-function drawBackground(th, camX) {
+function drawBackground(th, camX, themeName) {
   const g = ctx.createLinearGradient(0, HUD, 0, HUD + VH);
   g.addColorStop(0, th.sky[0]); g.addColorStop(1, th.sky[1]);
   ctx.fillStyle = g; ctx.fillRect(0, HUD, VW, VH);
   // 멀리 있는 언덕·구름 (카메라의 1/3 만큼만 움직인다)
   const off = camX * 0.3;
-  if (G.level.theme === 'grass' || G.level.theme === 'sky') {
-    ctx.fillStyle = G.level.theme === 'grass' ? '#3ea040' : 'rgba(255,255,255,.55)';
-    for (let i = -1; i < 6; i++) { const x = i * 120 - (off % 120) + 20; ctx.beginPath(); ctx.ellipse(x + 40, HUD + GROUND * T, 46, G.level.theme === 'grass' ? 30 : 14, 0, Math.PI, 0); ctx.fill(); }
+  if (themeName === 'grass' || themeName === 'sky') {
+    ctx.fillStyle = themeName === 'grass' ? '#3ea040' : 'rgba(255,255,255,.55)';
+    for (let i = -1; i < 6; i++) { const x = i * 120 - (off % 120) + 20; ctx.beginPath(); ctx.ellipse(x + 40, HUD + GROUND * T, 46, themeName === 'grass' ? 30 : 14, 0, Math.PI, 0); ctx.fill(); }
     ctx.fillStyle = '#fff';
     for (let i = -1; i < 4; i++) { const x = i * 150 - ((off * 0.6) % 150) + 30, y = HUD + 24 + (i % 2) * 22; ctx.beginPath(); ctx.ellipse(x, y, 16, 7, 0, 0, Math.PI * 2); ctx.ellipse(x + 12, y + 2, 12, 6, 0, 0, Math.PI * 2); ctx.ellipse(x - 12, y + 2, 11, 5, 0, 0, Math.PI * 2); ctx.fill(); }
   } else {
     ctx.fillStyle = th.hill;
     for (let i = -1; i < 8; i++) { const x = i * 70 - (off % 70); ctx.beginPath(); ctx.moveTo(x, HUD + 48); ctx.lineTo(x + 14, HUD + 70 + (i % 3) * 8); ctx.lineTo(x + 28, HUD + 48); ctx.fill(); }
-    if (G.level.theme === 'castle') { ctx.fillStyle = 'rgba(255,90,20,.18)'; ctx.fillRect(0, HUD + VH - 24, VW, 24); }
+    if (themeName === 'castle') { ctx.fillStyle = 'rgba(255,90,20,.18)'; ctx.fillRect(0, HUD + VH - 24, VW, 24); }
   }
 }
 function drawTile(ch, x, y, th, tx, ty) {
@@ -267,6 +273,11 @@ function drawTile(ch, x, y, th, tx, ty) {
     const w = Math.abs(Math.cos(clock * 6 + tx)) * 5 + 1;
     ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.ellipse(x + 8, y + 8, w, 6, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#a86a00'; ctx.lineWidth = 1; ctx.stroke();
+  } else if (ch === 'E') {
+    const lip = G.tiles[ty][tx - 1] !== 'E';
+    RC(x, y, T, T, '#2cb02c'); RC(x, y + 1, T, 3, '#8aff8a'); RC(x, y + 12, T, 3, '#1a7a1a');
+    if (lip) { RC(x, y, 3, T, '#1a7a1a'); RC(x + 3, y, 1, T, '#000'); }
+    if (ty === 9 || G.tiles[ty - 1][tx] !== 'E') RC(x, y, T, 1, '#000'); if (G.tiles[ty + 1][tx] !== 'E') RC(x, y + T - 1, T, 1, '#000');
   } else if (ch === 'F') { RC(x + 7, y, 2, T, '#e8e8e8'); RC(x + 7, y, 1, T, '#fff'); }
   else if (ch === 'f') { RC(x + 7, y + 6, 2, 10, '#e8e8e8'); ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(x + 8, y + 5, 4, 0, Math.PI * 2); ctx.fill(); }
 }
@@ -282,7 +293,7 @@ function drawTiles(th) {
   }
   // 깃발 (깃대 꼭대기 옆에서, 마리오가 잡으면 같이 내려온다)와 성
   const fx = G.level.flag * T - Math.round(G.camX);
-  if (fx > -60 && fx < VW + 20) {
+  if (!G.inRoom && fx > -60 && fx < VW + 20) {
     const fy = G.flagY === undefined ? 2 * T : G.flagY - 12;
     ctx.fillStyle = '#2cd02c'; ctx.beginPath(); ctx.moveTo(fx + 7, HUD + fy); ctx.lineTo(fx - 9, HUD + fy + 6); ctx.lineTo(fx + 7, HUD + fy + 12); ctx.fill();
     const cx = (G.level.flag + 3) * T - Math.round(G.camX), cy = HUD + GROUND * T;
@@ -354,6 +365,13 @@ function drawMario() {
   const big = m.size !== 'small', hh = m.h;
   const run = Math.abs(m.vx) > 5 && m.onGround, step = Math.floor(clock * (Math.abs(m.vx) > 100 ? 14 : 9)) % 2;
   const px = (ox, oy, w, h, c) => RC(x + (f > 0 ? ox : 12 - ox - w), y + oy, w, h, c);
+  if (m.crouch) {                                                                       // 앉은 모습: 머리와 몸이 납작하게
+    px(2, 0, 9, 3, suit); px(1, 2, 5, 2, suit);
+    px(3, 3, 8, 5, '#f8c898'); px(8, 4, 2, 2, '#000'); px(4, 7, 7, 1, '#6a3a12');
+    px(0, 8, 12, 5, suit); px(1, 10, 10, 3, pants);
+    px(0, 13, 5, 3, '#6a3a12'); px(7, 13, 5, 3, '#6a3a12');
+    return;
+  }
   if (m.dead) { px(1, 4, 10, 8, suit); px(2, 0, 8, 5, '#f8c898'); px(1, -2, 10, 3, suit); return; }
   const top = big ? hh - 28 : 0;
   px(2, top, 9, 3, suit); px(1, top + 2, 5, 2, suit);                                  // 모자
@@ -385,12 +403,13 @@ function drawHud() {
 function draw() {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, CH);
   if (!G) { ctx.fillStyle = '#5c94fc'; ctx.fillRect(0, HUD, VW, VH); drawHud(); return; }
-  const th = THEME[G.level.theme];
+  const th = THEME[G.inRoom ? 'cave' : G.level.theme];
   ctx.save(); ctx.beginPath(); ctx.rect(0, HUD, VW, VH); ctx.clip();
-  drawBackground(th, G.camX);
+  drawBackground(th, G.camX, G.inRoom ? 'cave' : G.level.theme);
   drawPlants(); drawItems();
+  if (G.phase === 'warp') drawMario();                                                 // 파이프에 들어가고 나올 때는 파이프가 마리오를 가린다
   drawTiles(th);
-  drawEnemies(); drawMario(); drawFx();
+  drawEnemies(); if (G.phase !== 'warp') drawMario(); drawFx();
   ctx.restore();
   drawHud();
   if (banner.t > 0) {
