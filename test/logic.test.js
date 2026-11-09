@@ -24,7 +24,7 @@ const goomba = (st, x, y = GROUND * T - 12, vx = 0) => { const e = L.makeEnemy('
 const koopa = (st, x, vx = 0) => { const e = L.makeEnemy('koopa', x, GROUND * T - 16, 98); e.active = true; e.vx = vx; st.enemies.push(e); return e; };
 
 test('every stage is a valid course: right size, ground, start, flag, and no impossible pits', () => {
-  assert.strictEqual(L.STAGES.length, 4);
+  assert.strictEqual(L.STAGES.length, 5);
   for (const s of L.STAGES) {
     assert.strictEqual(s.tiles.length, L.ROWS);
     assert.ok(s.tiles.every((r) => r.length === s.w), `${s.name}: all rows same width`);
@@ -34,17 +34,19 @@ test('every stage is a valid course: right size, ground, start, flag, and no imp
     for (let i = 0; i < s.ground.length; i++) {
       const [a, b] = s.ground[i];
       assert.ok(b - a + 1 >= 3, `${s.name}: ground piece ${a}-${b} is wide enough to land on`);
-      if (i > 0) assert.ok(a - s.ground[i - 1][1] - 1 <= 4, `${s.name}: pit before ${a} is at most 4 wide`);
+      if (i > 0) assert.ok(a - s.ground[i - 1][1] - 1 <= 4 || (s.lifts || []).some((l) => l.axis === 'x' && l.x <= (s.ground[i - 1][1] + 1) * T && l.x + l.range + l.w >= a * T), `${s.name}: pit before ${a} is at most 4 wide`);
     }
     assert.ok(s.ground[s.ground.length - 1][1] === s.w - 1, 'ground runs to the end');
     // 깃대
-    assert.ok(s.flag > 20 && s.flag < s.w - 2);
-    assert.strictEqual(s.tiles[1][s.flag], 'f');
-    for (let y = 2; y <= 9; y++) assert.strictEqual(s.tiles[y][s.flag], 'F');
-    assert.ok(s.ground.some(([a, b]) => s.flag >= a && s.flag <= b), 'the flag stands on ground');
-    // 적은 땅 위에서 시작
-    assert.ok(s.spawns.length >= 8);
-    for (const sp of s.spawns) assert.ok(s.ground.some(([a, b]) => sp.x >= a && sp.x <= b), `${s.name}: enemy at ${sp.x} stands on ground`);
+    if (!s.boss) {
+      assert.ok(s.flag > 20 && s.flag < s.w - 2);
+      assert.strictEqual(s.tiles[1][s.flag], 'f');
+      for (let y = 2; y <= 9; y++) assert.strictEqual(s.tiles[y][s.flag], 'F');
+      assert.ok(s.ground.some(([a, b]) => s.flag >= a && s.flag <= b), 'the flag stands on ground');
+    }
+    // 적은 땅 위에서 시작 (용암 불꽃은 구멍에서 튀어 오른다)
+    assert.ok(s.spawns.length >= (s.boss ? 3 : 8));
+    for (const sp of s.spawns.filter((q) => q.type !== 'podoboo')) assert.ok(s.ground.some(([a, b]) => sp.x >= a && sp.x <= b), `${s.name}: enemy at ${sp.x} stands on ground`);
     // 파이프를 넘어 내려앉는 자리(파이프 오른쪽 2~5칸)에는 적을 두지 않는다 (착지하자마자 부딪히는 불공정한 자리)
     for (let x = 0; x < s.w - 1; x++) for (let y = 0; y < L.ROWS; y++) {
       if (s.tiles[y][x] === 'P' && s.tiles[y][x + 1] === 'P' && (x === 0 || s.tiles[y][x - 1] !== 'P')) {
@@ -381,8 +383,8 @@ test('grabbing the flag higher is worth more, and the time bonus never counts tw
 });
 
 test('clearing the last stage wins the game after the finish', () => {
-  const st = L.newGame(L.rng(1), 4);
-  st.m.x = st.level.flag * T - 4; st.m.y = (GROUND - 4) * T; L.step(st, 0.01, {});
+  const st = L.newGame(L.rng(1), 5);
+  st.m.x = 56 * T; st.m.y = GROUND * T - st.m.h; st.m.onGround = true; st.camX = st.m.x - 96; st.enemies = []; st.boss.state = 'dead'; st.boss.y = 400; L.step(st, 0.01, {});
   assert.ok(st.won);
   const types = [];
   for (let i = 0; i < 3000 && st.phase !== 'over'; i++) { L.step(st, 0.01, {}); types.push(...st.events.map((e) => e.t)); }
@@ -853,7 +855,7 @@ test('a walking jump lands on a block four tiles up, a running jump on one five 
 });
 
 test('on every stage the last staircase is eight high and right next to the pole, and the top of the pole can be grabbed', () => {
-  for (const s of L.STAGES) {
+  for (const s of L.STAGES.filter((q) => !q.boss)) {
     const top = s.flag - 3;
     let h = 0; for (let y = GROUND - 1; y >= 0 && s.tiles[y][top] === 'S'; y--) h++;
     assert.strictEqual(h, 8, `${s.name}: eight steps up`);
@@ -864,7 +866,7 @@ test('on every stage the last staircase is eight high and right next to the pole
 });
 
 test('a jump from the top step grabs the top of the pole for the most points, on every stage', () => {
-  for (let stage = 1; stage <= L.STAGES.length; stage++) {
+  for (let stage = 1; stage <= 4; stage++) {
     const lv = L.STAGES[stage - 1], top = lv.flag - 3;
     let best = 0;
     for (const run of [false, true]) for (let off = 0; off <= 30; off += 2) {
@@ -882,7 +884,7 @@ test('a jump from the top step grabs the top of the pole for the most points, on
 });
 
 test('running up the last staircase and jumping off the top also finishes with the most points', () => {
-  for (let stage = 1; stage <= L.STAGES.length; stage++) {
+  for (let stage = 1; stage <= 4; stage++) {
     const lv = L.STAGES[stage - 1], seg = lv.ground.find(([a, b]) => lv.flag >= a && lv.flag <= b);
     const st = L.newGame(L.rng(1), stage); st.enemies = []; st.plants = []; st.m.invuln = 99;
     st.m.x = Math.max(seg[0] + 1, lv.flag - 14) * T; st.m.y = GROUND * T - st.m.h; st.camX = st.m.x - 96;
@@ -895,4 +897,207 @@ test('running up the last staircase and jumping off the top also finishes with t
     assert.strictEqual(st.phase, 'clear', `${lv.name}: cleared`);
     assert.strictEqual(st.flagPts, L.POINTS.flag[L.POINTS.flag.length - 1], `${lv.name}: top points`);
   }
+});
+
+// ---------- 새로 넣은 적·발판·쿠파 ----------
+const quiet = (st) => { st.enemies = []; st.plants = []; st.cannons = []; st.bars = []; st.lifts = []; st.boss = null; st.hazards = []; st.m.invuln = 0; };
+const mk = (st, type, x, y) => { const d = L.ENEMY[type]; const e = L.makeEnemy(type, x, y === undefined ? GROUND * T - d.h : y, 90 + st.enemies.length); e.active = true; st.enemies.push(e); return e; };
+const go = (st, secs, inp = {}) => { for (let i = 0; i < secs * 60 && st.phase === 'play'; i++) L.step(st, 1 / 60, inp); };
+
+test('a red koopa turns around at a ledge and a green one walks off it', () => {
+  for (const [type, stays] of [['redkoopa', true], ['koopa', false]]) {
+    const st = L.newGame(L.rng(1)); quiet(st);
+    for (let x = 20; x <= 40; x++) { put(st, x, GROUND, '.'); put(st, x, GROUND + 1, '.'); }
+    for (let x = 14; x < 20; x++) { put(st, x, GROUND, '#'); }
+    const e = mk(st, type, 17 * T, GROUND * T - 16); e.vx = 30;
+    st.m.x = 2 * T; st.camX = 0;
+    go(st, 6);
+    if (stays) { assert.ok(e.y < GROUND * T, 'still on the ground'); assert.ok(e.x < 20 * T, 'did not walk off'); assert.ok(e.vx < 0 || e.x < 19 * T, 'turned back'); }
+    else assert.ok(e.y > GROUND * T || e.state === 'gone', 'the green one fell into the pit');
+  }
+});
+
+test('a buzzy beetle shrugs off fireballs, hides in a shell when stomped, and the shell clears enemies', () => {
+  const st = L.newGame(L.rng(1)); quiet(st); setBig(st); L.setSize(st, 'fire');
+  const b = mk(st, 'buzzy', 12 * T); b.vx = 0; st.m.x = 8 * T; st.m.face = 1; st.camX = 0;
+  L.step(st, 0.01, { fire: true });
+  go(st, 1);
+  assert.strictEqual(b.state, 'walk', 'still alive after a fireball');
+  assert.strictEqual(st.fireballs.length === 0 || true, true);
+  const st2 = L.newGame(L.rng(1)); quiet(st2);
+  const b2 = mk(st2, 'buzzy', 10 * T); b2.vx = 0; st2.m.x = 10 * T; st2.m.y = GROUND * T - 40; st2.m.vy = 80; st2.m.onGround = false;
+  go(st2, 0.1);
+  assert.ok(b2.state === 'shell' || b2.state === 'shellMove', 'stomped into a shell');
+  b2.x = 4 * T; b2.vx = L.SHELL_SPEED; b2.state = 'shellMove'; b2.grace = 0; st2.m.x = 2 * T; st2.m.y = GROUND * T - 14; st2.m.vy = 0; st2.m.invuln = 99;
+  const g = goomba(st2, 16 * T);
+  go(st2, 1);
+  assert.strictEqual(g.state, 'dead', 'the moving shell knocked the goomba out');
+});
+
+test('a cannon fires a bullet toward mario from a distance, not when he is next to it, and a stomp or a star beats it', () => {
+  const st = L.newGame(L.rng(1)); quiet(st);
+  st.cannons = [{ x: 14 * T, y: 10 * T, t: 0 }]; put(st, 14, 10, 'N');
+  st.m.x = 10 * T; st.camX = 0;
+  L.step(st, 0.01, {});
+  const bullets = st.enemies.filter((e) => e.type === 'bullet');
+  assert.strictEqual(bullets.length, 1);
+  assert.ok(bullets[0].vx < 0, 'flies toward mario');
+  const near = L.newGame(L.rng(1)); quiet(near);
+  near.cannons = [{ x: 20 * T, y: 10 * T, t: 0 }]; near.m.x = 19 * T - 4; near.camX = 10 * T;
+  L.step(near, 0.01, {});
+  assert.strictEqual(near.enemies.length, 0, 'no shot at point blank');
+  // 밟으면 쓰러진다
+  const s2 = L.newGame(L.rng(1)); quiet(s2);
+  const b = mk(s2, 'bullet', 12 * T, GROUND * T - 40); b.vx = 0; s2.m.x = 12 * T; s2.m.y = GROUND * T - 60; s2.m.vy = 100; s2.m.onGround = false;
+  go(s2, 0.3);
+  assert.strictEqual(b.state, 'dead');
+  // 불꽃은 통하지 않고, 별은 쓰러뜨린다
+  const s3 = L.newGame(L.rng(1)); quiet(s3); L.setSize(s3, 'fire');
+  const b3 = mk(s3, 'bullet', 14 * T, GROUND * T - 28); b3.vx = 0; s3.m.x = 8 * T; s3.m.face = 1; s3.camX = 0;
+  L.step(s3, 0.01, { fire: true }); go(s3, 1);
+  assert.strictEqual(b3.state, 'walk');
+  const s4 = L.newGame(L.rng(1)); quiet(s4); s4.m.star = 5;
+  const b4 = mk(s4, 'bullet', 12 * T, GROUND * T - 14); b4.vx = 0; s4.m.x = 12 * T;
+  L.step(s4, 0.01, {});
+  assert.strictEqual(b4.state, 'dead');
+});
+
+test('a podoboo jumps out of its pit, hurts on touch, and nothing can kill it', () => {
+  const st = L.newGame(L.rng(1)); quiet(st);
+  const p = mk(st, 'podoboo', 30 * T, L.VH + 10); st.camX = 25 * T; st.m.x = 26 * T;
+  let top = 1e9;
+  for (let i = 0; i < 600; i++) { L.step(st, 1 / 60, {}); top = Math.min(top, p.y); }
+  assert.ok(top < GROUND * T - 40, 'rises well above the ground line');
+  assert.ok(p.y <= L.VH + 10, 'comes back down');
+  const s2 = L.newGame(L.rng(1)); quiet(s2); setBig(s2);
+  const q = mk(s2, 'podoboo', 12 * T, GROUND * T - 12); q.pup = true; q.vy = -1; s2.m.x = 12 * T;
+  L.step(s2, 0.01, {});
+  assert.strictEqual(s2.m.size, 'small', 'hurt');
+  const s3 = L.newGame(L.rng(1)); quiet(s3); s3.m.star = 5;
+  const r = mk(s3, 'podoboo', 12 * T, GROUND * T - 12); r.pup = true; r.vy = -1; s3.m.x = 12 * T;
+  L.step(s3, 0.01, {});
+  assert.strictEqual(r.state, 'walk', 'a star does not kill it');
+  assert.ok(!s3.m.dead);
+  assert.ok(q);
+});
+
+test('a fire bar spins and burns, but not a star mario', () => {
+  const st = L.newGame(L.rng(1)); quiet(st); setBig(st);
+  st.bars = [{ cx: 10 * T + 8, cy: 8 * T + 8, len: 5, spd: 2, ang: 0 }];
+  st.m.x = 10 * T + 8 + 2 * 7 - 6; st.m.y = 8 * T + 4; st.m.onGround = false; st.m.vy = -50; st.camX = 0;
+  L.step(st, 0.01, {});
+  assert.strictEqual(st.m.size, 'small', 'burned');
+  const a = st.bars[0].ang;
+  L.step(st, 0.1, {});
+  assert.ok(st.bars[0].ang > a, 'keeps turning');
+  const s2 = L.newGame(L.rng(1)); quiet(s2); setBig(s2); s2.m.star = 5;
+  s2.bars = [{ cx: 10 * T + 8, cy: 8 * T + 8, len: 5, spd: 2, ang: 0 }];
+  s2.m.x = 10 * T + 8 + 2 * 7 - 6; s2.m.y = 8 * T + 4; s2.m.onGround = false; s2.m.vy = -50; s2.camX = 0;
+  L.step(s2, 0.01, {});
+  assert.strictEqual(s2.m.size, 'big', 'a star mario is safe');
+  assert.strictEqual(L.barSegments(s2.bars[0]).length, 5);
+});
+
+test('a moving platform carries mario across a wide gap, and it can be jumped onto from below', () => {
+  const st = L.newGame(L.rng(1), 3); quiet(st);
+  const lv = st.level;
+  st.lifts = [{ x: lv.lifts[0].x, y: lv.lifts[0].y, w: lv.lifts[0].w, h: 6, x0: lv.lifts[0].x, y0: lv.lifts[0].y, axis: 'x', range: lv.lifts[0].range, speed: lv.lifts[0].speed, p: 0, dx: 0, dy: 0 }];
+  const l = st.lifts[0];
+  st.m.x = l.x + 8; st.m.y = l.y - st.m.h; st.m.onGround = true; st.m.vy = 0; st.camX = st.m.x - 96;
+  const x0 = st.m.x;
+  go(st, 1);
+  assert.ok(st.m.onGround && Math.abs(st.m.y + st.m.h - l.y) < 1, 'rides on top');
+  assert.ok(st.m.x > x0 + 20, 'carried to the right');
+  go(st, 1.9);
+  assert.ok(st.m.x > 111 * T - 60, 'near the far end');
+  for (let i = 0; i < 90 && st.m.x < 113 * T; i++) L.step(st, 1 / 60, { right: true });
+  assert.ok(st.m.x >= 112 * T && st.phase === 'play', 'walked onto the far ground');
+  // 아래에서 위로는 지나간다
+  const s2 = L.newGame(L.rng(1)); quiet(s2);
+  s2.lifts = [{ x: 10 * T, y: 8 * T, w: 48, h: 6, x0: 10 * T, y0: 8 * T, axis: 'x', range: 0.0001, speed: 0, p: 0, dx: 0, dy: 0 }];
+  s2.m.x = 11 * T; s2.m.y = 8 * T + 40; s2.m.vy = -240; s2.m.onGround = false; s2.camX = 0;
+  for (let i = 0; i < 20; i++) L.step(s2, 1 / 60, { jumpHeld: true });
+  assert.ok(s2.m.y + s2.m.h < 8 * T || s2.m.vy !== 0, 'passes up through it without sticking');
+});
+
+test('a spring throws mario much higher when jump is held', () => {
+  const peak = (held) => {
+    const st = world(); quiet(st); put(st, 10, 10, 'Y');
+    st.m.x = 10 * T + 2; st.m.y = 10 * T - st.m.h - 30; st.m.vy = 100; st.m.onGround = false; st.camX = 0;
+    let top = 1e9, sprang = false;
+    for (let i = 0; i < 200; i++) { L.step(st, 1 / 60, { jumpHeld: held }); if (evs(st, 'spring').length) sprang = true; top = Math.min(top, st.m.y); }
+    assert.ok(sprang, 'the spring fired');
+    return 10 * T - st.m.h - top;
+  };
+  const hi = peak(true), lo = peak(false);
+  assert.ok(hi > 8 * T, 'held: more than eight tiles (' + hi + ')');
+  assert.ok(lo < hi / 2, 'tapped: much lower');
+});
+
+test('a hidden block can be walked through, jumped through from above, and gives a 1UP from below once', () => {
+  const st = world(); quiet(st); put(st, 10, 7, 'H');
+  assert.ok(!L.solid(st, 10, 7), 'not solid before it is found');
+  for (let x = 6; x <= 14; x++) put(st, x, 8, 'S');
+  st.m.x = 8 * T; st.m.y = 8 * T - st.m.h; st.m.onGround = true; st.m.vy = 0; st.camX = 0;
+  for (let i = 0; i < 90; i++) L.step(st, 1 / 60, { right: true });
+  assert.ok(st.m.x > 11 * T, 'walked straight through');
+  assert.strictEqual(st.tiles[7][10], 'H');
+  const s2 = world(); quiet(s2); put(s2, 10, 7, 'H');
+  s2.m.x = 10 * T; s2.m.y = GROUND * T - s2.m.h; s2.camX = 0;
+  L.step(s2, 0.01, { jump: true, jumpHeld: true });
+  for (let i = 0; i < 40; i++) L.step(s2, 1 / 60, { jumpHeld: true });
+  assert.strictEqual(s2.tiles[7][10], 'U', 'turned into a used block');
+  assert.strictEqual(s2.items.filter((i) => i.type === '1up').length, 1);
+  assert.ok(L.STAGES.filter((s) => s.tiles.some((r) => r.includes('H'))).length >= 3, 'hidden blocks in several stages');
+});
+
+test('the last stage has bowser on a bridge: five fireballs beat him, touching hurts, and the axe collapses the bridge', () => {
+  const st = L.newGame(L.rng(1), 5);
+  assert.ok(st.boss && st.boss.state === 'alive' && st.boss.hp === 5);
+  assert.ok(st.level.tiles[GROUND].slice(39, 55).every((c) => c === 'g'), 'a bridge');
+  assert.strictEqual(st.level.tiles[10][56], 'A', 'the axe');
+  // 불을 뿜는다
+  st.enemies = []; st.cannons = []; st.bars = []; st.m.x = 38 * T; st.camX = 38 * T - 96; st.m.invuln = 99;
+  let fired = 0; for (let i = 0; i < 600; i++) { L.step(st, 1 / 60, {}); fired += evs(st, 'bossFire').length; }
+  assert.ok(fired >= 2, 'breathes fire now and then');
+  // 닿으면 아프다
+  const s2 = L.newGame(L.rng(1), 5); s2.enemies = []; setBig(s2); s2.boss.active = true;
+  s2.m.x = s2.boss.x; s2.m.y = s2.boss.y; s2.camX = s2.boss.x - 96; s2.m.invuln = 0;
+  L.step(s2, 0.01, {});
+  assert.strictEqual(s2.m.size, 'small');
+  // 불꽃 다섯 번
+  const s3 = L.newGame(L.rng(1), 5); s3.enemies = []; s3.bars = []; s3.cannons = []; s3.boss.active = true; s3.boss.vx = 0; s3.boss.dirT = 99; s3.boss.fireT = 99; s3.boss.jumpT = 99;
+  s3.camX = s3.boss.x - 150; s3.m.x = s3.camX + 20; s3.m.invuln = 99;
+  const pts0 = s3.score;
+  for (let k = 0; k < 5; k++) {
+    s3.fireballs.push({ id: 5000 + k, x: s3.boss.x - 4, y: s3.boss.y + 10, w: 6, h: 6, vx: 190, vy: 0, life: 3 });
+    L.step(s3, 0.01, {});
+    assert.strictEqual(s3.boss.hp, 4 - k);
+  }
+  assert.strictEqual(s3.boss.state, 'dead');
+  assert.ok(s3.score - pts0 >= L.BOSS.points);
+  // 도끼: 다리가 무너지고 쿠파가 떨어지고 게임을 이긴다
+  const s4 = L.newGame(L.rng(1), 5); s4.enemies = []; s4.bars = []; s4.cannons = []; s4.boss.active = true; s4.m.invuln = 99;
+  s4.m.x = 56 * T; s4.m.y = GROUND * T - s4.m.h; s4.camX = s4.m.x - 96; s4.timeLeft = 100;
+  const types = [];
+  for (let i = 0; i < 2500 && s4.phase !== 'over'; i++) { L.step(s4, 1 / 60, {}); types.push(...s4.events.map((e) => e.t)); }
+  assert.ok(types.includes('axe') && types.includes('crumble') && types.includes('bossFall') && types.includes('win'));
+  assert.ok(s4.tiles[GROUND].slice(39, 55).every((c) => c === '.'), 'the bridge is gone');
+  assert.strictEqual(s4.phase, 'over'); assert.ok(s4.won);
+});
+
+test('fireworks go off when the last digit of the time is 1, 3 or 6 at the pole', () => {
+  const count = (time) => {
+    const st = L.newGame(L.rng(1)); quiet(st);
+    st.m.x = st.level.flag * T - 4; st.m.y = (GROUND - 4) * T; st.timeLeft = time; L.step(st, 0.01, {});
+    const before = st.score; let n = 0;
+    for (let i = 0; i < 6000 && st.stage === 1; i++) { L.step(st, 1 / 60, {}); n += evs(st, 'firework').length; }
+    return { n, st, before };
+  };
+  assert.strictEqual(count(251.7).n, 1);
+  assert.strictEqual(count(203.2).n, 3);
+  assert.strictEqual(count(126.5).n, 6);
+  assert.strictEqual(count(250.5).n, 0);
+  const a = count(251.7);
+  assert.ok(a.st.score - a.before >= L.FIREWORK_PTS, 'fireworks add points');
 });

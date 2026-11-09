@@ -6,7 +6,7 @@ const LOGIC_SM = (() => {
   const LV = (typeof module !== 'undefined' && module.exports) ? require('./levels.js') : LEVELS_SM;
   const { T, ROWS, GROUND, STAGES, ROOM } = LV;
   const VW = 240, VH = ROWS * T;                      // 화면에 보이는 크기 240 x 208
-  const SOLID = new Set(['#', 'B', '?', 'M', '*', '1', '$', 'U', 'S', 'P', 'p']);
+  const SOLID = new Set(['#', 'B', '?', 'M', '*', '1', '$', 'U', 'S', 'P', 'p', 'N', 'Y', 'g']);   // H(숨은 블록)·A(도끼)는 지나갈 수 있다
   // --- 달리기·점프 (원작: 걷기 1.56px/f, 달리기 2.56px/f, 가속 0.037/0.056, 브레이크 0.05, 미끄러짐 0.10) ---
   const WALK = 93.75, RUN = 153.75, ACC_WALK = 133, ACC_RUN = 200, DECEL = 183, SKID = 366;
   const JUMP_SLOW = 240, JUMP_FAST = 300, G_HOLD_SLOW = 400, G_HOLD_FAST = 510, G_FALL = 1575, MAXFALL = 240;   // 점프 버튼을 누르고 있으면 올라가는 동안 중력이 약하다
@@ -18,7 +18,16 @@ const LOGIC_SM = (() => {
   const SHELL_CHAIN = [500, 800, 1000, 2000, 4000, 5000, 8000];
   const POINTS = { coin: 200, brick: 50, stomp: STOMP_CHAIN, shell: SHELL_CHAIN, kick: 400, kill: 200, mushroom: 1000, star: 1000, plant: 200, flag: [100, 400, 800, 2000, 5000], timePerUnit: 50 };
   const EXTRA_LIFE_COINS = 100, EXTRA_LIFE_AT = 100000;
-  const ENEMY = { goomba: { w: 12, h: 12, speed: 30 }, koopa: { w: 12, h: 16, speed: 30 } };
+  const ENEMY = {
+    goomba: { w: 12, h: 12, speed: 30 }, koopa: { w: 12, h: 16, speed: 30 },
+    redkoopa: { w: 12, h: 16, speed: 30, ledge: true },                       // 낭떠러지 끝에서 돌아선다
+    buzzy: { w: 12, h: 12, speed: 30, fireproof: true },                      // 불꽃이 안 통한다
+    bullet: { w: 14, h: 12, speed: 70, fly: true, fireproof: true },          // 대포알: 날아간다
+    podoboo: { w: 12, h: 12, speed: 0, fly: true, fireproof: true, immortal: true, nostomp: true },   // 용암 불꽃: 무엇으로도 못 잡는다
+  };
+  const BOSS = { w: 24, h: 28, hp: 5, speed: 28, points: 5000 };
+  const CANNON_EVERY = 3.2, BAR_STEP = 7, SPRING_HOLD = 430, SPRING_TAP = 290;
+  const FIREWORK_DIGITS = { 1: 1, 3: 3, 6: 6 }, FIREWORK_PTS = 500, FIREWORK_GAP = 0.55;
   const SHELL_SPEED = 200, SHELL_REVIVE = 5;
   const COIN_BLOCK_MAX = 10, COIN_BLOCK_TIME = 4;
   const PLANT = { w: 12, h: 16, down: 2, rise: 0.5, up: 1.5, sink: 0.5, near: 28 };   // 식물: 쉬고 · 올라오고 · 머물고 · 내려간다. 마리오가 파이프 옆 28픽셀 안이면 안 나온다
@@ -50,7 +59,12 @@ const LOGIC_SM = (() => {
     st.timeLeft = st.tutorial ? 9999 : lv.time;
     st.hurried = false;
     st.camX = 0;
-    st.enemies = lv.spawns.map((s, i) => makeEnemy(s.type, s.x * T + 2, GROUND * T - ENEMY[s.type].h, i));
+    st.enemies = lv.spawns.map((s, i) => makeEnemy(s.type, s.x * T + 2, s.type === 'podoboo' ? VH + 10 : GROUND * T - ENEMY[s.type].h, i));
+    st.cannons = lv.cannons.map((c, i) => ({ x: c.x, y: c.y, t: 1.5 + i * 0.8 }));
+    st.bars = lv.bars.map((b) => ({ ...b }));
+    st.lifts = lv.lifts.map((l) => ({ x: l.x, y: l.y, w: l.w, h: 6, x0: l.x, y0: l.y, axis: l.axis, range: l.range, speed: l.speed, p: 0, dx: 0, dy: 0 }));
+    st.hazards = [];
+    st.boss = lv.boss ? { x: lv.boss.x * T, y: GROUND * T - BOSS.h, w: BOSS.w, h: BOSS.h, vx: -BOSS.speed, vy: 0, hp: BOSS.hp, face: -1, min: lv.boss.min * T, max: lv.boss.max * T, dirT: 1, jumpT: 2, fireT: 2.5, flash: 0, state: 'alive', active: false } : null;
     st.plants = lv.plants.map((p, i) => ({ id: 500 + i, x: p.x * T + 10, w: PLANT.w, h: PLANT.h, topY: p.topY, pipeX: p.x * T + T, state: 'down', timer: i * 0.7, extent: 0, y: p.topY, dead: false }));
     st.items = []; st.fireballs = []; st.coinBlocks = {}; st.seq = 1000;
     st.m = makeMario(st, lv.start * T, 'small');
@@ -61,7 +75,7 @@ const LOGIC_SM = (() => {
   }
   function makeMario(st, x, size) {
     const sz = SIZE[size];
-    return { x, y: GROUND * T - sz.h, w: sz.w, h: sz.h, vx: 0, vy: 0, size, face: 1, onGround: true, coyote: 0, invuln: 1, star: 0, jumpHeld: false, running: false, fireCool: 0, moved: false, dead: false, hidden: false, skid: false, crouch: false };
+    return { prevBottom: 0, ride: null, x, y: GROUND * T - sz.h, w: sz.w, h: sz.h, vx: 0, vy: 0, size, face: 1, onGround: true, coyote: 0, invuln: 1, star: 0, jumpHeld: false, running: false, fireCool: 0, moved: false, dead: false, hidden: false, skid: false, crouch: false };
   }
   function makeEnemy(type, x, y, id) {
     const d = ENEMY[type];
@@ -107,6 +121,7 @@ const LOGIC_SM = (() => {
     else if (ch === 'M') { st.tiles[ty][tx] = 'U'; spawnItem(st, m.size === 'small' ? 'mushroom' : 'flower', tx, ty); emit(st, { t: 'block', ch, tx, ty }); }
     else if (ch === '*') { st.tiles[ty][tx] = 'U'; spawnItem(st, 'star', tx, ty); emit(st, { t: 'block', ch, tx, ty }); }
     else if (ch === '1') { st.tiles[ty][tx] = 'U'; spawnItem(st, '1up', tx, ty); emit(st, { t: 'block', ch, tx, ty }); }
+    else if (ch === 'H') { st.tiles[ty][tx] = 'U'; spawnItem(st, '1up', tx, ty); emit(st, { t: 'block', ch, tx, ty }); }
     else if (ch === '$') {                                              // 정해진 시간 안에 칠 때마다 동전, 열 개가 되거나 시간이 지나면 쓴 블록
       const key = tx + ',' + ty;
       const cb = st.coinBlocks[key] || (st.coinBlocks[key] = { n: 0, t: COIN_BLOCK_TIME });
@@ -167,6 +182,7 @@ const LOGIC_SM = (() => {
 
   function stepMario(st, h, input) {
     const m = st.m;
+    m.prevBottom = m.y + m.h;
     // 앉기: 커진 마리오가 땅에서 ↓ 를 누르면 앉는다. 앉은 채로는 걷지 못하고 달리던 힘으로 미끄러진다. 놓을 때 머리 위가 막혀 있으면 계속 앉아 있는다
     if (m.size !== 'small') {
       if (input.down && !m.crouch && m.onGround) { setCrouch(st, true); emit(st, { t: 'crouch' }); }
@@ -210,10 +226,19 @@ const LOGIC_SM = (() => {
     if (hitX) m.vx = 0;
     if (m.x < st.camX) { m.x = st.camX; if (m.vx < 0) m.vx = 0; }
     const wasGround = m.onGround;
-    const hy = moveY(st, m, m.vy * h);
+    let hidden = false;                                                   // 숨은 블록: 아래에서 머리로 치면 나타난다
+    if (m.vy < 0) {
+      const ny = m.y + m.vy * h, ty = Math.floor(ny / T);
+      for (let tx = Math.floor(m.x / T); tx <= Math.floor((m.x + m.w - 0.001) / T); tx++) if (tileAt(st, tx, ty) === 'H' && m.y >= (ty + 1) * T - 0.5) { m.y = (ty + 1) * T; m.vy = 60; hitBlock(st, tx, ty); hidden = true; break; }
+    }
+    const hy = hidden ? null : moveY(st, m, m.vy * h);
     m.onGround = false;
     if (hy) {
-      if (hy.dir > 0) { m.onGround = true; m.vy = 0; if (!wasGround) emit(st, { t: 'land' }); st.stompChain = 0; st.starChain = 0; }
+      const sx = Math.floor((m.x + m.w / 2) / T), sy = Math.floor((m.y + m.h + 0.5) / T);
+      if (hy.dir > 0 && tileAt(st, sx, sy) === 'Y') {                       // 스프링: 밟으면 높이 튀어 오른다 (점프를 누르고 있으면 더 높이)
+        m.vy = -(m.jumpHeld ? SPRING_HOLD : SPRING_TAP); m.jumpG = G_HOLD_FAST; st.stompChain = 0; st.starChain = 0;
+        emit(st, { t: 'spring', tx: sx, ty: sy });
+      } else if (hy.dir > 0) { m.onGround = true; m.vy = 0; if (!wasGround) emit(st, { t: 'land' }); st.stompChain = 0; st.starChain = 0; }
       else { m.vy = 60; hitBlock(st, hy.tx, hy.ty); }
     }
     if (m.invuln > 0) m.invuln = Math.max(0, m.invuln - h);
@@ -228,6 +253,7 @@ const LOGIC_SM = (() => {
     return list[idx];
   }
   function killEnemy(st, e, pts, by) {
+    if (ENEMY[e.type].immortal) return;
     e.state = 'dead'; e.vy = -150; e.vx = 0; e.timer = 2;
     addScore(st, pts); emit(st, { t: 'kill', x: e.x, y: e.y, pts, by });
   }
@@ -235,15 +261,29 @@ const LOGIC_SM = (() => {
     if (e.state === 'dead') { e.vy = Math.min(MAXFALL + 100, e.vy + 1000 * h); e.y += e.vy * h; e.timer -= h; return; }
     if (e.state === 'flat') { e.timer -= h; return; }
     if (e.grace > 0) e.grace -= h;
+    const d = ENEMY[e.type];
+    if (e.type === 'bullet') { e.x += e.vx * h; return; }
+    if (e.type === 'podoboo') {                                            // 구멍 아래에서 기다리다가 가끔 튀어 오른다
+      e.timer += h;
+      if (!e.pup) { e.y = VH + 10; if (e.timer >= 2.2 + (e.id % 3) * 0.6) { e.pup = true; e.vy = -400; e.timer = 0; } }
+      else { e.vy += 700 * h; e.y += e.vy * h; if (e.vy > 0 && e.y >= VH + 10) { e.pup = false; e.y = VH + 10; e.timer = 0; } }
+      return;
+    }
     if (e.state === 'shell') {                          // 가만히 있는 등껍질은 시간이 지나면 다시 걷는다
       e.vx = 0; e.timer += h; e.wiggle = e.timer > SHELL_REVIVE - 1;
-      if (e.timer >= SHELL_REVIVE) { e.state = 'walk'; e.type = 'koopa'; e.h = ENEMY.koopa.h; e.y -= ENEMY.koopa.h - 12; e.vx = -ENEMY.koopa.speed; e.timer = 0; e.wiggle = false; e.chain = 0; }
+      if (e.timer >= SHELL_REVIVE) { e.state = 'walk'; e.h = d.h; e.y -= d.h - 12; e.vx = -d.speed; e.timer = 0; e.wiggle = false; e.chain = 0; }
     }
     e.vy = Math.min(MAXFALL + 100, e.vy + 1000 * h);
     const hit = moveX(st, e, e.vx * h);
     if (hit) e.vx = -e.vx;
     const hy = moveY(st, e, e.vy * h);
-    if (hy && hy.dir > 0) e.vy = 0;
+    if (hy && hy.dir > 0) {
+      e.vy = 0;
+      if (d.ledge && e.state === 'walk') {                                 // 빨간 거북: 발 앞이 낭떠러지면 돌아선다
+        const fx = Math.floor((e.vx > 0 ? e.x + e.w + 1 : e.x - 1) / T), fy = Math.floor((e.y + e.h + 2) / T);
+        if (!solid(st, fx, fy)) { e.vx = -e.vx; e.x += e.vx > 0 ? 1 : -1; }
+      }
+    }
     if (e.y > VH + 60) e.state = 'gone';
   }
   function stepEnemies(st, h) {
@@ -262,8 +302,9 @@ const LOGIC_SM = (() => {
     for (const e of st.enemies) {
       if (!e.active || e.state === 'dead' || e.state === 'flat' || e.state === 'gone') continue;
       if (!overlap(m, e)) continue;
-      if (m.star > 0) { killEnemy(st, e, chainPoints(st, STOMP_CHAIN, st.starChain), 'star'); st.starChain++; continue; }          // 별 마리오는 닿기만 해도 쓰러뜨린다
-      const stomp = m.vy > 0 && m.y + m.h - e.y <= 9 + m.vy * h;
+      const d = ENEMY[e.type];
+      if (m.star > 0) { if (d.immortal) continue; killEnemy(st, e, chainPoints(st, STOMP_CHAIN, st.starChain), 'star'); st.starChain++; continue; }          // 별 마리오는 닿기만 해도 쓰러뜨린다
+      const stomp = !d.nostomp && m.vy > 0 && m.y + m.h - e.y <= 9 + m.vy * h;
       if (e.state === 'shell') {                                        // 가만히 있는 등껍질: 밟거나 닿으면 찬다
         e.state = 'shellMove'; e.timer = 0; e.chain = 0; e.vx = (m.x + m.w / 2 < e.x + e.w / 2 ? 1 : -1) * SHELL_SPEED; e.grace = 0.3;
         addScore(st, POINTS.kick);
@@ -276,13 +317,14 @@ const LOGIC_SM = (() => {
         st.stompChain++; st.stats.stomps++; addScore(st, pts);
         m.vy = -(m.jumpHeld ? 230 : 160);
         if (e.type === 'goomba') { e.state = 'flat'; e.timer = 0.4; e.vx = 0; }
+        else if (e.type === 'bullet') { e.state = 'dead'; e.vx = 0; e.vy = 0; e.timer = 2; }
         else if (e.state === 'shellMove') { e.state = 'shell'; e.vx = 0; e.timer = 0; }
-        else { e.state = 'shell'; e.h = 12; e.y += 4; e.vx = 0; e.timer = 0; }
+        else { e.state = 'shell'; e.y += e.h - 12; e.h = 12; e.vx = 0; e.timer = 0; }
         emit(st, { t: 'stomp', x: e.x, y: e.y, pts, type: e.type });
       } else if (e.state === 'shellMove' && e.grace > 0) { /* 막 찬 등껍질은 안전 */ }
       else hurt(st);
     }
-    st.enemies = st.enemies.filter((e) => e.state !== 'gone' && !(e.state === 'dead' && e.timer <= 0) && !(e.state === 'flat' && e.timer <= 0) && e.x > st.camX - 96);
+    st.enemies = st.enemies.filter((e) => e.state !== 'gone' && !(e.state === 'dead' && e.timer <= 0) && !(e.state === 'flat' && e.timer <= 0) && e.x > st.camX - 96 && !(e.type === 'bullet' && e.x > st.camX + VW + 140));
   }
 
   // ---------- 파이프 속 식물 ----------
@@ -301,6 +343,88 @@ const LOGIC_SM = (() => {
       }
     }
     st.plants = st.plants.filter((p) => !p.dead);
+  }
+
+  // ---------- 대포·불꽃 막대·움직이는 발판 ----------
+  function stepCannons(st, h) {
+    const m = st.m;
+    for (const c of st.cannons) {
+      c.t -= h;
+      if (c.t > 0) continue;
+      c.t = CANNON_EVERY;
+      if (c.x < st.camX - 8 || c.x > st.camX + VW || Math.abs(c.x - m.x) < 3 * T) continue;            // 화면 밖이거나 마리오가 바로 옆이면 쏘지 않는다
+      if (st.enemies.filter((e) => e.type === 'bullet' && e.state === 'walk').length >= 3) continue;
+      const dir = m.x < c.x ? -1 : 1;
+      const e = makeEnemy('bullet', dir < 0 ? c.x - 10 : c.x + T - 4, c.y + 2, ++st.seq);
+      e.vx = dir * ENEMY.bullet.speed; e.active = true;
+      st.enemies.push(e); emit(st, { t: 'cannon', x: c.x, y: c.y });
+    }
+  }
+  const barSegments = (b) => { const a = []; for (let i = 1; i <= b.len; i++) a.push({ x: b.cx + Math.cos(b.ang) * i * BAR_STEP - 3, y: b.cy + Math.sin(b.ang) * i * BAR_STEP - 3, w: 6, h: 6 }); return a; };
+  function stepBars(st, h) {
+    const m = st.m;
+    for (const b of st.bars) {
+      b.ang += b.spd * h;
+      if (m.dead || b.cx < st.camX - 80 || b.cx > st.camX + VW + 80) continue;
+      for (const sg of barSegments(b)) if (overlap(m, sg)) { hurt(st); break; }
+    }
+  }
+  function stepLifts(st, h) {                                           // 움직이는 발판은 위에서만 설 수 있다. 타고 있으면 같이 움직인다
+    const m = st.m;
+    for (const l of st.lifts) {
+      l.p += l.speed * h;
+      const cyc = l.p % (2 * l.range), off = cyc < l.range ? cyc : 2 * l.range - cyc;
+      const ox = l.x, oy = l.y;
+      if (l.axis === 'x') l.x = l.x0 + off; else l.y = l.y0 - off;
+      l.dx = l.x - ox; l.dy = l.y - oy;
+      if (m.ride === l && !m.dead) { moveX(st, m, l.dx); m.y += l.dy; }
+    }
+  }
+  function liftLand(st) {
+    const m = st.m;
+    m.ride = null;
+    if (m.dead) return;
+    for (const l of st.lifts) {
+      if (m.vy >= 0 && m.x + m.w > l.x && m.x < l.x + l.w && m.prevBottom <= l.y + 2 && m.y + m.h >= l.y && m.y + m.h <= l.y + 12) {
+        const wasGround = m.onGround;
+        m.y = l.y - m.h; m.vy = 0; m.onGround = true; m.ride = l; st.stompChain = 0; st.starChain = 0;
+        if (!wasGround) emit(st, { t: 'land' });
+        return;
+      }
+    }
+  }
+
+  // ---------- 쿠파 대마왕 ----------
+  function stepBoss(st, h) {
+    const b = st.boss, m = st.m;
+    if (!b) return;
+    if (b.state !== 'alive') { b.vy = Math.min(MAXFALL + 200, b.vy + 900 * h); b.y += b.vy * h; return; }      // 쓰러졌거나 다리가 무너지면 떨어진다
+    if (!b.active) { if (b.x < st.camX + VW + 8) b.active = true; else return; }
+    if (b.flash > 0) b.flash -= h;
+    b.dirT -= h;
+    if (b.dirT <= 0) { b.vx = (st.rand() < 0.5 ? -1 : 1) * BOSS.speed; b.dirT = 1 + st.rand() * 1.5; }
+    b.face = m.x + m.w / 2 < b.x + b.w / 2 ? -1 : 1;
+    b.x += b.vx * h;
+    if (b.x < b.min) { b.x = b.min; b.vx = Math.abs(b.vx); }
+    if (b.x > b.max) { b.x = b.max; b.vx = -Math.abs(b.vx); }
+    const floor = GROUND * T - b.h;
+    b.vy += 1000 * h; b.y += b.vy * h;
+    if (b.y >= floor) { b.y = floor; b.vy = 0; }
+    b.jumpT -= h;
+    if (b.jumpT <= 0 && b.y >= floor) { b.vy = -230; b.jumpT = 2.2 + st.rand() * 1.8; }                 // 가끔 뛰어서 그 밑으로 지나갈 수 있다
+    b.fireT -= h;
+    if (b.fireT <= 0) {                                                                                   // 불을 내뿜는다: 세 가지 높이 중 하나
+      b.fireT = 2.2 + st.rand() * 1.2;
+      const ys = [GROUND * T - 18, GROUND * T - 34, GROUND * T - 50];
+      st.hazards.push({ x: b.face < 0 ? b.x - 14 : b.x + b.w, y: ys[Math.floor(st.rand() * 3)], w: 16, h: 8, vx: b.face * 85 });
+      emit(st, { t: 'bossFire' });
+    }
+    if (!m.dead && m.star <= 0 && overlap(m, b)) hurt(st);
+  }
+  function stepHazards(st, h) {
+    const m = st.m;
+    for (const f of st.hazards) { f.x += f.vx * h; if (!m.dead && overlap(m, f)) hurt(st); }
+    st.hazards = st.hazards.filter((f) => f.x > st.camX - 40 && f.x < st.camX + VW + 40);
   }
 
   // ---------- 아이템·불꽃 ----------
@@ -332,7 +456,12 @@ const LOGIC_SM = (() => {
       const hy = moveY(st, f, f.vy * h);
       if (hy && hy.dir > 0) f.vy = -150;
       else if (hy) f.life = 0;
-      for (const e of st.enemies) if (e.active && e.state !== 'dead' && e.state !== 'gone' && e.state !== 'flat' && overlap(f, e)) { killEnemy(st, e, POINTS.kill, 'fire'); f.life = 0; break; }
+      for (const e of st.enemies) if (e.active && e.state !== 'dead' && e.state !== 'gone' && e.state !== 'flat' && overlap(f, e)) { if (!ENEMY[e.type].fireproof) killEnemy(st, e, POINTS.kill, 'fire'); f.life = 0; break; }
+      const b = st.boss;
+      if (b && b.state === 'alive' && f.life > 0 && overlap(f, b)) {                  // 쿠파는 불꽃 다섯 번에 쓰러진다
+        f.life = 0; b.hp--; b.flash = 0.2; emit(st, { t: 'bossHit', hp: b.hp });
+        if (b.hp <= 0) { b.state = 'dead'; b.vy = -200; addScore(st, BOSS.points); emit(st, { t: 'bossDead', x: b.x, y: b.y, pts: BOSS.points }); }
+      }
       for (const p of st.plants) if (f.life > 0 && p.extent > 0.15 && overlap(f, { x: p.x, y: p.y, w: p.w, h: p.topY - p.y })) { p.dead = true; f.life = 0; addScore(st, POINTS.plant); emit(st, { t: 'kill', x: p.x, y: p.y, pts: POINTS.plant, by: 'fire' }); }
       if (f.y > VH + 20) f.life = 0;
     }
@@ -348,6 +477,7 @@ const LOGIC_SM = (() => {
       const ch = tileAt(st, tx, ty);
       if (ch === 'C') { st.tiles[ty][tx] = '.'; addCoin(st, false); }
       else if ((ch === 'F' || ch === 'f') && st.phase === 'play') return reachFlag(st);
+      else if (ch === 'A' && st.phase === 'play') return reachAxe(st);
     }
   }
   // 깃대를 잡았다: 미끄러져 내려가고 → 성 쪽으로 걸어가고 → 남은 시간이 점수로 바뀌고 → 다음 코스
@@ -358,10 +488,20 @@ const LOGIC_SM = (() => {
     addScore(st, pts);
     st.phase = 'clear'; st.clearPhase = 'slide'; st.clearT = 0; st.flagPts = pts; st.bonus = st.tutorial ? 0 : Math.floor(st.timeLeft) * POINTS.timePerUnit;
     m.vx = 0; m.vy = 0; m.star = 0; m.x = st.level.flag * T + 7 - m.w; m.face = 1;
-    st.countAcc = 0;
+    st.countAcc = 0; st.fw = st.tutorial ? 0 : (FIREWORK_DIGITS[Math.floor(st.timeLeft) % 10] || 0); st.fwDone = 0;       // 남은 시간 끝자리가 1·3·6 이면 불꽃놀이
     emit(st, { t: 'flag', pts, bonus: st.bonus });
     if (st.stage >= STAGES.length) st.won = true;
   }
+  // 도끼를 건드렸다: 다리가 끝에서부터 무너지고 쿠파가 용암으로 떨어진다 → 남은 시간 정산 → 끝
+  function reachAxe(st) {
+    const m = st.m;
+    st.phase = 'clear'; st.clearPhase = 'bridge'; st.clearT = 0; st.bridgeDone = 0; st.fw = 0; st.fwDone = 0;
+    st.bonus = st.tutorial ? 0 : Math.floor(st.timeLeft) * POINTS.timePerUnit;
+    m.vx = 0; m.vy = 0; m.star = 0; st.won = true; st.countAcc = 0;
+    st.hazards = [];
+    emit(st, { t: 'axe', bonus: st.bonus });
+  }
+  function afterCount(st) { st.clearPhase = st.fw > 0 ? 'fireworks' : 'wait'; st.clearT = 0; }
   function stepClear(st, h) {
     const m = st.m, fx = st.level.flag * T, floor = (GROUND - 1) * T;
     st.clearT += h;
@@ -381,8 +521,22 @@ const LOGIC_SM = (() => {
         st.timeLeft -= dec; st.countAcc += dec;
         const whole = Math.floor(st.countAcc);
         if (whole > 0) { st.countAcc -= whole; addScore(st, whole * POINTS.timePerUnit); emit(st, { t: 'tick' }); }
-        if (st.timeLeft <= 0) { st.timeLeft = 0; st.clearPhase = 'wait'; st.clearT = 0; }
-      } else { st.clearPhase = 'wait'; st.clearT = 0; }
+        if (st.timeLeft <= 0) { st.timeLeft = 0; afterCount(st); }
+      } else afterCount(st);
+    } else if (st.clearPhase === 'bridge') {
+      const br = st.level.bridge, n = br[1] - br[0] + 1;
+      while (st.bridgeDone < n && st.bridgeDone < st.clearT / 0.08) { st.tiles[GROUND][br[1] - st.bridgeDone] = '.'; st.bridgeDone++; emit(st, { t: 'crumble' }); }
+      const b = st.boss;
+      if (b && b.state === 'alive' && st.tiles[GROUND][Math.floor((b.x + b.w / 2) / T)] !== 'g') { b.state = 'fall'; b.vy = 0; emit(st, { t: 'bossFall' }); }
+      stepBoss(st, h);
+      if (st.bridgeDone >= n && st.clearT > n * 0.08 + 0.8) { st.clearPhase = 'count'; st.clearT = 0; if (st.tutorial) st.timeLeft = 0; }
+    } else if (st.clearPhase === 'fireworks') {
+      const lv = st.level, k = st.fwDone;
+      if (k < st.fw && st.clearT >= (k + 1) * FIREWORK_GAP - 0.3) {
+        addScore(st, FIREWORK_PTS); st.fwDone++;
+        emit(st, { t: 'firework', x: (lv.flag + 3) * T + 24 + ((k % 3) - 1) * 22, y: 34 + ((k * 37) % 32), pts: FIREWORK_PTS });
+      }
+      if (st.fwDone >= st.fw && st.clearT >= st.fw * FIREWORK_GAP + 0.4) { st.clearPhase = 'wait'; st.clearT = 0; }
     } else if (st.clearPhase === 'wait') {
       if (st.clearT >= FLAG.wait) {
         emit(st, { t: 'clear', stage: st.stage });
@@ -466,11 +620,15 @@ const LOGIC_SM = (() => {
     st.timeLeft -= TIME_RATE * h;
     if (!st.hurried && !st.tutorial && st.timeLeft <= HURRY_AT) { st.hurried = true; emit(st, { t: 'hurry' }); }
     if (st.timeLeft <= 0) { st.timeLeft = 0; return die(st, 'time'); }
+    const out = !st.inRoom;
+    if (out) stepLifts(st, h);
     stepMario(st, h, input);
+    if (out) liftLand(st);
     if (st.phase !== 'play') return;
     if (input.down && m.onGround && !m.dead) { const w = warpAt(st); if (w) { startWarp(st, 'in', w); return; } }     // 파이프 위에서 ↓
     if (st.inRoom && input.right && m.onGround && tileAt(st, Math.floor((m.x + m.w) / T), Math.floor((m.y + m.h - 1) / T)) === 'E') { leaveRoom(st); return; }
     st.camX = Math.max(st.camX, Math.min(st.w * T - VW, m.x - 96));
+    if (out) { stepCannons(st, h); stepBars(st, h); stepBoss(st, h); stepHazards(st, h); }
     stepEnemies(st, h);
     stepPlants(st, h);
     stepItems(st, h);
@@ -480,7 +638,7 @@ const LOGIC_SM = (() => {
   return {
     T, ROWS, GROUND, VW, VH, STAGES, SOLID, WALK, RUN, ACC_WALK, ACC_RUN, DECEL, SKID, JUMP_SLOW, JUMP_FAST, G_HOLD_SLOW, G_HOLD_FAST, G_FALL, MAXFALL, SIZE, START_LIVES, DYING, INVULN, STAR_TIME,
     TIME_RATE, HURRY_AT, COUNT_RATE, POINTS, STOMP_CHAIN, SHELL_CHAIN, ENEMY, SHELL_SPEED, SHELL_REVIVE, COIN_BLOCK_MAX, COIN_BLOCK_TIME, PLANT, FLAG, EXTRA_LIFE_COINS, EXTRA_LIFE_AT,
-    CROUCH_H, WARP_TIME, ROOM,
+    CROUCH_H, WARP_TIME, ROOM, BOSS, CANNON_EVERY, SPRING_HOLD, SPRING_TAP, FIREWORK_PTS, barSegments,
     rng, newGame, startStage, step, tileAt, solid, hitBlock, hurt, die, setSize, addScore, makeEnemy, overlap, setCrouch, canStand, warpAt,
   };
 })();

@@ -72,6 +72,12 @@ const sfx = {
   pipe: () => tone(260, 0.5, 'square', 0.04, -180),
   count: () => tone(1100, 0.03, 'square', 0.025),
   star: () => melody([784, 988, 1175, 988, 784], 60, 'square', 0.04),
+  cannon: () => tone(120, 0.16, 'sawtooth', 0.06, -60),
+  spring: () => tone(260, 0.3, 'triangle', 0.06, 700),
+  bossFire: () => tone(220, 0.35, 'sawtooth', 0.05, -120),
+  bossHit: () => tone(180, 0.15, 'square', 0.06, -80),
+  firework: () => melody([1200, 800, 1600], 50, 'triangle', 0.05),
+  crumble: () => tone(150, 0.08, 'sawtooth', 0.05, -80),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
@@ -133,7 +139,7 @@ function startGame(stage = 1) {
   announceStage();
   sfx.powerup();
 }
-function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : '깃대까지 달려요!', 1.8); }
+function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : G.level.boss ? '쿠파를 지나 도끼까지! 불꽃 다섯 번이면 쓰러져요' : '깃대까지 달려요!', 1.8); }
 function pause() {
   if (state !== 'play') return;
   state = 'paused';
@@ -151,7 +157,7 @@ function gameOver() {
     <h2>${G.won ? '🎉 모두 클리어!' : '게임 끝!'}</h2>
     <div class="big">${G.score.toLocaleString('ko-KR')}</div>
     ${record ? '<p><b>🎉 최고 기록!</b></p>' : ''}
-    <p>${G.won ? '4개 코스를 모두 깼어요!' : `${G.stage}코스(${G.level.name})까지 갔어요`}<br>굼바 밟기 ${G.stats.stomps}번 · 동전 ${G.stats.coinsTotal}개 · 최고 점수 ${best.toLocaleString('ko-KR')}점</p>
+    <p>${G.won ? L.STAGES.length + '개 코스를 모두 깼어요!' : `${G.stage}코스(${G.level.name})까지 갔어요`}<br>굼바 밟기 ${G.stats.stomps}번 · 동전 ${G.stats.coinsTotal}개 · 최고 점수 ${best.toLocaleString('ko-KR')}점</p>
     <button data-act="again">${G.won ? '처음부터 다시' : `${G.stage}코스부터 다시`}</button>
     <button data-act="title" class="sub">처음 화면</button>`);
 }
@@ -207,6 +213,15 @@ function handle(e) {
   else if (e.t === 'crouch') { sfx.crouch(); tutorialSignal('crouch'); }
   else if (e.t === 'warp') { sfx.pipe(); if (e.kind === 'in') tutorialSignal('warp'); }
   else if (e.t === 'room') showBanner('보너스 방!', '동전을 모아 오른쪽 파이프로 나가요', 2.2, '#ffd23a');
+  else if (e.t === 'cannon') sfx.cannon();
+  else if (e.t === 'spring') { sfx.spring(); bumps.push({ tx: e.tx, ty: e.ty, t: 0 }); }
+  else if (e.t === 'bossFire') sfx.bossFire();
+  else if (e.t === 'bossHit') sfx.bossHit();
+  else if (e.t === 'bossDead') { sfx.clear(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 1.2, text: String(e.pts), color: '#ffd23a' }); showBanner('쿠파를 쓰러뜨렸다!', '도끼를 찾아요', 1.8, '#ffd23a'); }
+  else if (e.t === 'bossFall') sfx.kill();
+  else if (e.t === 'crumble') sfx.crumble();
+  else if (e.t === 'axe') { sfx.flag(); showBanner('다리가 무너진다!', e.bonus ? `시간 +${e.bonus}` : '', 3, '#7dff7d'); }
+  else if (e.t === 'firework') { sfx.firework(); fxs.push({ kind: 'firework', x: e.x, y: e.y, t: 0, life: 0.7, color: ['#ffd23a', '#ff6a8a', '#7dff7d', '#6ac8ff'][Math.floor(clock * 7) % 4] }); }
   else if (e.t === 'starEnd') sfx.shrink();
   else if (e.t === 'shrink') sfx.shrink();
   else if (e.t === 'stomp') { sfx.stomp(); tutorialSignal('stomp'); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#fff' }); }
@@ -246,6 +261,10 @@ function drawBackground(th, camX, themeName) {
     for (let i = -1; i < 8; i++) { const x = i * 70 - (off % 70); ctx.beginPath(); ctx.moveTo(x, HUD + 48); ctx.lineTo(x + 14, HUD + 70 + (i % 3) * 8); ctx.lineTo(x + 28, HUD + 48); ctx.fill(); }
     if (themeName === 'castle') { ctx.fillStyle = 'rgba(255,90,20,.18)'; ctx.fillRect(0, HUD + VH - 24, VW, 24); }
   }
+  if (themeName === 'castle') {                                                         // 구멍 아래는 용암
+    ctx.fillStyle = '#e04010'; ctx.fillRect(0, HUD + VH - 14, VW, 14); ctx.fillStyle = '#ffa030';
+    for (let i = 0; i < 20; i++) ctx.fillRect(((i * 17 - Math.floor(clock * 14)) % VW + VW) % VW, HUD + VH - 14 + (i % 3) * 3, 8, 2);
+  }
 }
 function drawTile(ch, x, y, th, tx, ty) {
   if (ch === '#') {
@@ -278,6 +297,17 @@ function drawTile(ch, x, y, th, tx, ty) {
     RC(x, y, T, T, '#2cb02c'); RC(x, y + 1, T, 3, '#8aff8a'); RC(x, y + 12, T, 3, '#1a7a1a');
     if (lip) { RC(x, y, 3, T, '#1a7a1a'); RC(x + 3, y, 1, T, '#000'); }
     if (ty === 9 || G.tiles[ty - 1][tx] !== 'E') RC(x, y, T, 1, '#000'); if (G.tiles[ty + 1][tx] !== 'E') RC(x, y + T - 1, T, 1, '#000');
+  } else if (ch === 'N') {                                                              // 대포
+    RC(x, y, T, T, '#3a3a44'); RC(x, y, T, 2, '#6a6a78'); RC(x + 1, y + 2, 14, 1, '#1a1a22');
+    ctx.fillStyle = '#0a0a10'; ctx.beginPath(); ctx.arc(x + 8, y + 8, 4, 0, Math.PI * 2); ctx.fill(); RC(x, y + 13, T, 3, '#24242c');
+  } else if (ch === 'Y') {                                                              // 스프링
+    const sq = bumps.find((q) => q.tx === tx && q.ty === ty) ? 3 : 0;
+    RC(x + 2, y + 1 + sq, 12, 3, '#d8d8e0'); RC(x + 2, y + 13, 12, 3, '#d8d8e0');
+    ctx.strokeStyle = '#38a0f0'; ctx.lineWidth = 2; ctx.beginPath(); for (let k = 0; k < 4; k++) { ctx.moveTo(x + 4, y + 4 + sq + k * (2 - sq / 4)); ctx.lineTo(x + 12, y + 6 + sq + k * (2 - sq / 4)); } ctx.stroke();
+  } else if (ch === 'g') {                                                              // 다리
+    RC(x, y, T, 5, '#c89050'); RC(x, y, T, 1, '#f0d0a0'); RC(x, y + 5, T, 1, '#5a3a18'); RC(x + 7, y, 1, 5, '#5a3a18');
+  } else if (ch === 'A') {                                                              // 도끼
+    RC(x + 7, y + 1, 2, 14, '#8a5a2a'); ctx.fillStyle = Math.floor(clock * 4) % 2 ? '#f0f0f8' : '#a8b0c0'; ctx.beginPath(); ctx.moveTo(x + 8, y + 1); ctx.lineTo(x + 2, y + 4); ctx.lineTo(x + 2, y + 9); ctx.lineTo(x + 8, y + 7); ctx.fill();
   } else if (ch === 'F') { RC(x + 7, y, 2, T, '#e8e8e8'); RC(x + 7, y, 1, T, '#fff'); }
   else if (ch === 'f') { RC(x + 7, y + 6, 2, 10, '#e8e8e8'); ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(x + 8, y + 5, 4, 0, Math.PI * 2); ctx.fill(); }
 }
@@ -293,7 +323,7 @@ function drawTiles(th) {
   }
   // 깃발 (깃대 꼭대기 옆에서, 마리오가 잡으면 같이 내려온다)와 성
   const fx = G.level.flag * T - Math.round(G.camX);
-  if (!G.inRoom && fx > -60 && fx < VW + 20) {
+  if (!G.inRoom && G.level.flag !== undefined && fx > -60 && fx < VW + 20) {
     const fy = G.flagY === undefined ? 2 * T : G.flagY - 12;
     ctx.fillStyle = '#2cd02c'; ctx.beginPath(); ctx.moveTo(fx + 7, HUD + fy); ctx.lineTo(fx - 9, HUD + fy + 6); ctx.lineTo(fx + 7, HUD + fy + 12); ctx.fill();
     const cx = (G.level.flag + 3) * T - Math.round(G.camX), cy = HUD + GROUND * T;
@@ -322,6 +352,62 @@ function drawKoopa(e, x, y) {
   RC(x + (dir > 0 ? 7 : 1), y, 4, 6, '#f0d870'); RC(x + (dir > 0 ? 9 : 2), y + 1, 1, 2, '#000');
   RC(x + (step ? 2 : 4), y + 13, 3, 3, '#f0a020'); RC(x + (step ? 7 : 5), y + 13, 3, 3, '#f0a020');
 }
+function drawBuzzy(e, x, y) {
+  const dir = e.vx >= 0 ? 1 : -1, step = Math.floor(clock * 6 + e.id) % 2;
+  ctx.fillStyle = '#28307a'; ctx.beginPath(); ctx.ellipse(x + 6, y + 8, 6.5, 7, 0, Math.PI, 0); ctx.fill(); RC(x, y + 8, 12, 3, '#5a5aa0'); RC(x + 3, y + 3, 5, 3, '#6a74d8');
+  if (e.state === 'shell' || e.state === 'shellMove') { if (e.state === 'shellMove') RC(x + 2 + Math.floor(clock * 20) % 3, y + 9, 3, 2, '#8a8ac8'); return; }
+  RC(x + (dir > 0 ? 8 : 0), y + 6, 4, 4, '#f0e8d0'); RC(x + (dir > 0 ? 10 : 1), y + 7, 1, 2, '#000');
+  RC(x + (step ? 1 : 3), y + 10, 3, 2, '#f0e8d0'); RC(x + (step ? 8 : 6), y + 10, 3, 2, '#f0e8d0');
+}
+function drawBullet(e, x, y) {
+  const dir = e.vx >= 0 ? 1 : -1, px = (ox, oy, w, h, c) => RC(x + (dir > 0 ? ox : 14 - ox - w), y + oy, w, h, c);
+  px(0, 1, 9, 10, '#181820'); px(7, 0, 5, 12, '#181820'); px(10, 2, 4, 8, '#181820'); px(9, 3, 3, 3, '#fff'); px(11, 4, 1, 2, '#000'); px(2, 2, 3, 1, '#3a3a48');
+  px(-1 + Math.floor(clock * 12) % 2, 4, 2, 4, '#e8a030');
+}
+function drawPodoboo(e, x, y) {
+  ctx.fillStyle = Math.floor(clock * 14) % 2 ? '#ff5010' : '#ffb020'; ctx.beginPath(); ctx.arc(x + 6, y + 6, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffe070'; ctx.beginPath(); ctx.arc(x + 6, y + 7, 3.2, 0, Math.PI * 2); ctx.fill(); RC(x + 3, y + 3, 2, 2, '#fff'); RC(x + 7, y + 3, 2, 2, '#fff'); RC(x + 4, y + 4, 1, 1, '#000'); RC(x + 8, y + 4, 1, 1, '#000');
+  if (e.vy < 0) { ctx.fillStyle = 'rgba(255,120,20,.7)'; RC(x + 4, y + 12, 4, 6, 'rgba(255,120,20,.6)'); }
+}
+function drawBars() {
+  for (const b of G.bars) {
+    const px = b.cx - G.camX;
+    if (px < -60 || px > VW + 60) continue;
+    for (const sg of L.barSegments(b)) { const x = Math.round(sg.x - G.camX), y = HUD + Math.round(sg.y); ctx.fillStyle = Math.floor(clock * 16) % 2 ? '#ffd23a' : '#ff6020'; ctx.beginPath(); ctx.arc(x + 3, y + 3, 3.4, 0, Math.PI * 2); ctx.fill(); RC(x + 2, y + 2, 2, 2, '#fff'); }
+  }
+}
+function drawLifts() {
+  for (const l of G.lifts) {
+    const x = Math.round(l.x - G.camX), y = HUD + Math.round(l.y);
+    if (x < -l.w || x > VW) continue;
+    RC(x, y, l.w, 6, '#e0a040'); RC(x, y, l.w, 1, '#ffe0a0'); RC(x, y + 5, l.w, 1, '#7a4a10');
+    for (let k = 4; k < l.w - 2; k += 12) RC(x + k, y + 2, 4, 2, '#7a4a10');
+  }
+}
+function drawBoss() {
+  const b = G.boss;
+  if (!b || !b.active && b.state === 'alive') return;
+  const x = Math.round(b.x - G.camX), y = HUD + Math.round(b.y), f = b.face;
+  if (x < -40 || x > VW + 40 || y > HUD + VH + 40) return;
+  ctx.save();
+  if (b.state !== 'alive') { ctx.translate(x + 12, y + 14); ctx.rotate(clock * 5); ctx.translate(-(x + 12), -(y + 14)); }
+  const px = (ox, oy, w, h, c) => RC(x + (f > 0 ? ox : b.w - ox - w), y + oy, w, h, c);
+  const hurt = b.flash > 0 && Math.floor(clock * 30) % 2;
+  const shell = hurt ? '#ffffff' : '#2a8a2a', skin = hurt ? '#ffe0e0' : '#e0b030';
+  px(0, 6, 4, 14, '#e0a020'); px(2, 8, 14, 16, shell); px(4, 10, 4, 4, '#58d858'); px(10, 10, 4, 4, '#58d858'); px(4, 16, 4, 4, '#58d858'); px(10, 16, 4, 4, '#58d858');     // 등딱지
+  px(12, 2, 12, 12, skin); px(20, 6, 4, 8, '#f0d070'); px(14, 4, 4, 4, '#fff'); px(16, 5, 2, 2, '#000'); px(11, 0, 3, 5, '#d83020'); px(18, 0, 3, 4, '#d83020');                  // 머리
+  px(20, 11, 4, 3, '#fff');                                                                                                                                                       // 이빨
+  const st = Math.floor(clock * 4) % 2;
+  px(4 + (st ? 0 : 2), 22, 6, 6, skin); px(14 - (st ? 0 : 2), 22, 6, 6, skin); px(14, 14, 6, 6, skin);
+  ctx.restore();
+}
+function drawHazards() {
+  for (const f of G.hazards) {
+    const x = Math.round(f.x - G.camX), y = HUD + Math.round(f.y), dir = f.vx >= 0 ? 1 : -1;
+    ctx.fillStyle = '#ff5010'; ctx.beginPath(); ctx.ellipse(x + 8, y + 4, 8, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.ellipse(x + 8 + dir * 2, y + 4, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+  }
+}
 function drawEnemies() {
   for (const e of G.enemies) {
     if (!e.active) continue;
@@ -329,7 +415,11 @@ function drawEnemies() {
     if (x < -20 || x > VW + 20) continue;
     ctx.save();
     if (e.state === 'dead') { ctx.translate(x + e.w / 2, y + e.h / 2); ctx.scale(1, -1); ctx.translate(-(x + e.w / 2), -(y + e.h / 2)); }
-    if (e.type === 'goomba') drawGoomba(e, x, y); else drawKoopa(e, x, y);
+    if (e.type === 'goomba') drawGoomba(e, x, y);
+    else if (e.type === 'bullet') drawBullet(e, x, y);
+    else if (e.type === 'podoboo') drawPodoboo(e, x, y);
+    else if (e.type === 'buzzy') drawBuzzy(e, x, y);
+    else drawKoopa(e, x, y);
     ctx.restore();
   }
 }
@@ -386,6 +476,12 @@ function drawFx() {
   for (const f of fxs) {
     const k = f.t / f.life;
     if (f.kind === 'text') { ctx.globalAlpha = 1 - k * k; ctx.fillStyle = f.color; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 2.5; const x = f.x - G.camX, y = HUD + f.y - k * 18; ctx.strokeText(f.text, x, y); ctx.fillText(f.text, x, y); ctx.globalAlpha = 1; }
+    else if (f.kind === 'firework') {
+      const x = f.x - G.camX, y = HUD + f.y, r = 4 + k * 16;
+      ctx.globalAlpha = 1 - k; ctx.fillStyle = f.color;
+      for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; ctx.fillRect(x + Math.cos(a) * r - 1, y + Math.sin(a) * r - 1, 3, 3); }
+      ctx.globalAlpha = 1;
+    }
     else if (f.kind === 'brick') { const x = f.x - G.camX + f.vx * f.t, y = HUD + f.y + f.vy * f.t + 500 * f.t * f.t; ctx.globalAlpha = 1 - k; RC(x - 3, y - 3, 6, 6, '#c84c0c'); ctx.globalAlpha = 1; }
   }
 }
@@ -406,10 +502,10 @@ function draw() {
   const th = THEME[G.inRoom ? 'cave' : G.level.theme];
   ctx.save(); ctx.beginPath(); ctx.rect(0, HUD, VW, VH); ctx.clip();
   drawBackground(th, G.camX, G.inRoom ? 'cave' : G.level.theme);
-  drawPlants(); drawItems();
+  drawPlants(); drawItems(); drawLifts();
   if (G.phase === 'warp') drawMario();                                                 // 파이프에 들어가고 나올 때는 파이프가 마리오를 가린다
   drawTiles(th);
-  drawEnemies(); if (G.phase !== 'warp') drawMario(); drawFx();
+  drawEnemies(); drawBoss(); drawBars(); drawHazards(); if (G.phase !== 'warp') drawMario(); drawFx();
   ctx.restore();
   drawHud();
   if (banner.t > 0) {
