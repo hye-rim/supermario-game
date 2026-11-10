@@ -24,7 +24,12 @@ const LOGIC_SM = (() => {
     buzzy: { w: 12, h: 12, speed: 30, fireproof: true },                      // 불꽃이 안 통한다
     bullet: { w: 14, h: 12, speed: 70, fly: true, fireproof: true },          // 대포알: 날아간다
     podoboo: { w: 12, h: 12, speed: 0, fly: true, fireproof: true, immortal: true, nostomp: true },   // 용암 불꽃: 무엇으로도 못 잡는다
+    hammerbro: { w: 14, h: 24, speed: 0, killOnStomp: true },                 // 해머 브로스: 밟기·불꽃·별로 쓰러진다 (1000점)
+    lakitu: { w: 16, h: 20, speed: 0, fly: true, killOnStomp: true },         // 구름 탄 적: 날아다니며 가시 알을 떨군다 (밟으면 쓰러진다)
+    spiny: { w: 12, h: 12, speed: 40, nostomp: true },                        // 가시 거북: 밟으면 다친다. 불꽃·별·등껍질에는 쓰러진다
+    cheep: { w: 12, h: 12, speed: 0, fly: true, killOnStomp: true },          // 날아오르는 물고기
   };
+  const HAMMER = { every: 1.5, jump: 1.8, range: 22, points: 1000 }, LAKITU_POINTS = 1200, LAKITU_EGG_EVERY = 3.2, LAKITU_Y = 118;     // 걷는 점프로도 위에서 밟을 수 있는 낮은 높이 (서 있는 큰 마리오 머리 위로 7픽셀 비어 있다)
   const BOSS = { w: 24, h: 28, hp: 5, speed: 28, points: 5000 };
   const CANNON_EVERY = 3.2, BAR_STEP = 7, SPRING_HOLD = 430, SPRING_TAP = 290;
   const FIREWORK_DIGITS = { 1: 1, 3: 3, 6: 6 }, FIREWORK_PTS = 500, FIREWORK_GAP = 0.55;
@@ -59,11 +64,12 @@ const LOGIC_SM = (() => {
     st.timeLeft = st.tutorial ? 9999 : lv.time;
     st.hurried = false;
     st.camX = 0;
-    st.enemies = lv.spawns.map((s, i) => makeEnemy(s.type, s.x * T + 2, s.type === 'podoboo' ? VH + 10 : GROUND * T - ENEMY[s.type].h, i));
+    st.enemies = lv.spawns.map((s, i) => makeEnemy(s.type, s.x * T + 2, s.type === 'podoboo' ? VH + 10 : s.type === 'lakitu' ? LAKITU_Y : GROUND * T - ENEMY[s.type].h, i));
+    for (const [i, s] of lv.spawns.entries()) if (s.from !== undefined) { st.enemies[i].from = s.from * T; st.enemies[i].to = s.to * T; }
     st.cannons = lv.cannons.map((c, i) => ({ x: c.x, y: c.y, t: 1.5 + i * 0.8 }));
     st.bars = lv.bars.map((b) => ({ ...b }));
     st.lifts = lv.lifts.map((l) => ({ x: l.x, y: l.y, w: l.w, h: 6, x0: l.x, y0: l.y, axis: l.axis, range: l.range, speed: l.speed, p: 0, dx: 0, dy: 0 }));
-    st.hazards = [];
+    st.hazards = []; st.hammers = []; st.cheepT = 1.5; st.newEnemies = [];
     st.boss = lv.boss ? { x: lv.boss.x * T, y: GROUND * T - BOSS.h, w: BOSS.w, h: BOSS.h, vx: -BOSS.speed, vy: 0, hp: BOSS.hp, face: -1, min: lv.boss.min * T, max: lv.boss.max * T, dirT: 1, jumpT: 2, fireT: 2.5, flash: 0, state: 'alive', active: false } : null;
     st.plants = lv.plants.map((p, i) => ({ id: 500 + i, x: p.x * T + 10, w: PLANT.w, h: PLANT.h, topY: p.topY, pipeX: p.x * T + T, state: 'down', timer: i * 0.7, extent: 0, y: p.topY, dead: false }));
     st.items = []; st.fireballs = []; st.coinBlocks = {}; st.seq = 1000;
@@ -263,6 +269,40 @@ const LOGIC_SM = (() => {
     if (e.grace > 0) e.grace -= h;
     const d = ENEMY[e.type];
     if (e.type === 'bullet') { e.x += e.vx * h; return; }
+    if (e.type === 'cheep') {                                                // 포물선으로 날아올랐다 떨어진다
+      e.vy += 520 * h; e.x += e.vx * h; e.y += e.vy * h;
+      if (e.vy > 0 && e.y > VH + 24) e.state = 'gone';
+      return;
+    }
+    if (e.type === 'lakitu') {                                               // 마리오 앞쪽을 따라가며 가끔 가시 알을 떨군다. 정해진 구간 밖으로는 안 간다
+      const m = st.m, lead = m.vx > 20 ? 56 : m.vx < -20 ? -56 : 0;
+      const tx = clamp(m.x + lead, e.from, e.to), dx = tx - e.x;
+      e.vx = clamp(e.vx + Math.sign(dx) * 140 * h, -80, 80);
+      if (Math.abs(dx) < 4) e.vx *= 0.9;
+      e.x += e.vx * h; e.y = LAKITU_Y + Math.sin(st.time * 2 + e.id) * 3;
+      e.timer += h;
+      if (e.timer >= LAKITU_EGG_EVERY && Math.abs(m.x - e.x) < 120 && e.x > st.camX && e.x < st.camX + VW) {
+        e.timer = 0;
+        const egg = makeEnemy('spiny', e.x + 2, e.y + 14, ++st.seq); egg.egg = true; egg.active = true; egg.vx = Math.sign(m.x - e.x || 1) * 22; egg.vy = -110;
+        st.newEnemies.push(egg); emit(st, { t: 'egg' });
+      }
+      return;
+    }
+    if (e.type === 'hammerbro') {                                            // 제자리에서 오가며, 마리오 쪽을 보고 망치를 던지고, 가끔 뛴다
+      const m = st.m;
+      if (e.home === undefined) { e.home = e.x; e.dir = 1; e.hamT = 0.8; e.jumpT = HAMMER.jump; }
+      e.face = m.x < e.x ? -1 : 1;
+      if (e.x > e.home + HAMMER.range) e.dir = -1; else if (e.x < e.home - HAMMER.range) e.dir = 1;
+      e.vx = e.dir * 18;
+      e.jumpT -= h;
+      if (e.jumpT <= 0 && e.vy === 0) { e.vy = -240; e.jumpT = HAMMER.jump + st.rand() * 1.5; }
+      e.hamT -= h;
+      if (e.hamT <= 0) {
+        e.hamT = HAMMER.every * (0.7 + st.rand() * 0.6);
+        st.hammers.push({ x: e.x + (e.face > 0 ? e.w - 2 : -6), y: e.y - 2, w: 8, h: 8, vx: e.face * (38 + st.rand() * 22), vy: -200, spin: 0 });
+        emit(st, { t: 'hammer' });
+      }
+    }
     if (e.type === 'podoboo') {                                            // 구멍 아래에서 기다리다가 가끔 튀어 오른다
       e.timer += h;
       if (!e.pup) { e.y = VH + 10; if (e.timer >= 2.2 + (e.id % 3) * 0.6) { e.pup = true; e.vy = -400; e.timer = 0; } }
@@ -277,6 +317,7 @@ const LOGIC_SM = (() => {
     const hit = moveX(st, e, e.vx * h);
     if (hit) e.vx = -e.vx;
     const hy = moveY(st, e, e.vy * h);
+    if (hy && hy.dir > 0 && e.egg) { e.egg = false; e.vx = (st.m.x < e.x ? -1 : 1) * d.speed; }
     if (hy && hy.dir > 0) {
       e.vy = 0;
       if (d.ledge && e.state === 'walk') {                                 // 빨간 거북: 발 앞이 낭떠러지면 돌아선다
@@ -292,6 +333,7 @@ const LOGIC_SM = (() => {
       if (!e.active) { if (e.x < st.camX + VW + 24) e.active = true; else continue; }
       stepEnemy(st, e, h);
     }
+    if (st.newEnemies.length) { st.enemies.push(...st.newEnemies); st.newEnemies = []; }
     // 움직이는 등껍질은 다른 적을 쓰러뜨린다 (연속으로 쓰러뜨릴수록 점수가 커지고 끝에는 1UP)
     for (const s of st.enemies) {
       if (s.state !== 'shellMove') continue;
@@ -318,6 +360,7 @@ const LOGIC_SM = (() => {
         m.vy = -(m.jumpHeld ? 230 : 160);
         if (e.type === 'goomba') { e.state = 'flat'; e.timer = 0.4; e.vx = 0; }
         else if (e.type === 'bullet') { e.state = 'dead'; e.vx = 0; e.vy = 0; e.timer = 2; }
+        else if (d.killOnStomp) { e.state = 'dead'; e.vx = 0; e.vy = -120; e.timer = 2; if (e.type === 'hammerbro') addScore(st, HAMMER.points); else if (e.type === 'lakitu') addScore(st, LAKITU_POINTS); }
         else if (e.state === 'shellMove') { e.state = 'shell'; e.vx = 0; e.timer = 0; }
         else { e.state = 'shell'; e.y += e.h - 12; e.h = 12; e.vx = 0; e.timer = 0; }
         emit(st, { t: 'stomp', x: e.x, y: e.y, pts, type: e.type });
@@ -420,6 +463,27 @@ const LOGIC_SM = (() => {
       emit(st, { t: 'bossFire' });
     }
     if (!m.dead && m.star <= 0 && overlap(m, b)) hurt(st);
+  }
+  function stepHammers(st, h) {
+    const m = st.m;
+    for (const f of st.hammers) { f.vy += 620 * h; f.x += f.vx * h; f.y += f.vy * h; f.spin += h; if (!m.dead && overlap(m, f)) hurt(st); }
+    st.hammers = st.hammers.filter((f) => f.y < VH + 20 && f.x > st.camX - 40 && f.x < st.camX + VW + 40);
+  }
+  function stepCheeps(st, h) {                                          // 구간 안에서는 물고기가 구멍 위로 날아오른다
+    const z = st.level.cheeps, m = st.m;
+    if (!z || m.x < z[0] * T || m.x > z[1] * T) return;
+    st.cheepT -= h;
+    if (st.cheepT > 0) return;
+    st.cheepT = 1.4 + st.rand() * 1.1;
+    if (st.enemies.filter((e) => e.type === 'cheep' && e.state === 'walk').length >= 2) return;
+    for (let k = 0; k < 8; k++) {
+      const x = st.camX + 24 + st.rand() * (VW - 48), tx = Math.floor(x / T);
+      let clear = true; for (let q = tx - 3; q <= tx + 3; q++) if (solid(st, q, GROUND)) clear = false;
+      if (!clear || x < z[0] * T - 40 || x > z[1] * T + 40) continue;     // 땅 위(양옆 세 칸 안)에서는 안 튀어 오른다: 땅을 뚫고 나오는 것처럼 보이지 않게
+      const e = makeEnemy('cheep', x, VH + 8, ++st.seq); e.active = true; e.vy = -(300 + st.rand() * 60); e.vx = (st.rand() < 0.5 ? -1 : 1) * (18 + st.rand() * 16);
+      st.enemies.push(e); emit(st, { t: 'cheep' });
+      return;
+    }
   }
   function stepHazards(st, h) {
     const m = st.m;
@@ -628,7 +692,7 @@ const LOGIC_SM = (() => {
     if (input.down && m.onGround && !m.dead) { const w = warpAt(st); if (w) { startWarp(st, 'in', w); return; } }     // 파이프 위에서 ↓
     if (st.inRoom && input.right && m.onGround && tileAt(st, Math.floor((m.x + m.w) / T), Math.floor((m.y + m.h - 1) / T)) === 'E') { leaveRoom(st); return; }
     st.camX = Math.max(st.camX, Math.min(st.w * T - VW, m.x - 96));
-    if (out) { stepCannons(st, h); stepBars(st, h); stepBoss(st, h); stepHazards(st, h); }
+    if (out) { stepCannons(st, h); stepBars(st, h); stepBoss(st, h); stepHazards(st, h); stepHammers(st, h); stepCheeps(st, h); }
     stepEnemies(st, h);
     stepPlants(st, h);
     stepItems(st, h);
@@ -638,7 +702,7 @@ const LOGIC_SM = (() => {
   return {
     T, ROWS, GROUND, VW, VH, STAGES, SOLID, WALK, RUN, ACC_WALK, ACC_RUN, DECEL, SKID, JUMP_SLOW, JUMP_FAST, G_HOLD_SLOW, G_HOLD_FAST, G_FALL, MAXFALL, SIZE, START_LIVES, DYING, INVULN, STAR_TIME,
     TIME_RATE, HURRY_AT, COUNT_RATE, POINTS, STOMP_CHAIN, SHELL_CHAIN, ENEMY, SHELL_SPEED, SHELL_REVIVE, COIN_BLOCK_MAX, COIN_BLOCK_TIME, PLANT, FLAG, EXTRA_LIFE_COINS, EXTRA_LIFE_AT,
-    CROUCH_H, WARP_TIME, ROOM, BOSS, CANNON_EVERY, SPRING_HOLD, SPRING_TAP, FIREWORK_PTS, barSegments,
+    CROUCH_H, WARP_TIME, ROOM, BOSS, HAMMER, LAKITU_POINTS, CANNON_EVERY, SPRING_HOLD, SPRING_TAP, FIREWORK_PTS, barSegments,
     rng, newGame, startStage, step, tileAt, solid, hitBlock, hurt, die, setSize, addScore, makeEnemy, overlap, setCrouch, canStand, warpAt,
   };
 })();

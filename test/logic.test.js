@@ -55,7 +55,7 @@ test('every stage is a valid course: right size, ground, start, flag, and no imp
     }
     // 버섯 블록이 처음에 있다
     const early = [];
-    for (let y = 0; y < L.ROWS; y++) for (let x = 0; x < 20; x++) if (s.tiles[y][x] === 'M') early.push([x, y]);
+    for (let y = 0; y < L.ROWS; y++) for (let x = 0; x < 24; x++) if (s.tiles[y][x] === 'M') early.push([x, y]);
     assert.ok(early.length >= 1, `${s.name}: a mushroom block near the start`);
     // 파이프는 3칸 이하, 블록은 닿을 수 있는 높이
     let maxPipe = 0;
@@ -900,7 +900,7 @@ test('running up the last staircase and jumping off the top also finishes with t
 });
 
 // ---------- 새로 넣은 적·발판·쿠파 ----------
-const quiet = (st) => { st.enemies = []; st.plants = []; st.cannons = []; st.bars = []; st.lifts = []; st.boss = null; st.hazards = []; st.m.invuln = 0; };
+const quiet = (st) => { st.level = { ...st.level, cheeps: null }; st.enemies = []; st.plants = []; st.cannons = []; st.bars = []; st.lifts = []; st.boss = null; st.hazards = []; st.m.invuln = 0; };
 const mk = (st, type, x, y) => { const d = L.ENEMY[type]; const e = L.makeEnemy(type, x, y === undefined ? GROUND * T - d.h : y, 90 + st.enemies.length); e.active = true; st.enemies.push(e); return e; };
 const go = (st, secs, inp = {}) => { for (let i = 0; i < secs * 60 && st.phase === 'play'; i++) L.step(st, 1 / 60, inp); };
 
@@ -1100,4 +1100,117 @@ test('fireworks go off when the last digit of the time is 1, 3 or 6 at the pole'
   assert.strictEqual(count(250.5).n, 0);
   const a = count(251.7);
   assert.ok(a.st.score - a.before >= L.FIREWORK_PTS, 'fireworks add points');
+});
+
+// ---------- 해머 브로스·구름 탄 적·물고기·원작 1-1 배치 ----------
+test('hammer bro throws hammers toward mario, hurts on touch, and dies to a stomp, a fireball or a star', () => {
+  const mkb = (st, x) => { const e = mk(st, 'hammerbro', x); return e; };
+  const st = L.newGame(L.rng(3)); quiet(st); const b = mkb(st, 14 * T); st.m.x = 4 * T; st.camX = 0; st.m.invuln = 99;
+  let thrown = 0, towards = true, home = b.home;
+  for (let i = 0; i < 60 * 8; i++) { L.step(st, 1 / 60, {}); thrown += evs(st, 'hammer').length; if (st.hammers.some((h) => h.vx > 0)) towards = false; }
+  assert.ok(thrown >= 3, 'throws every second or so (' + thrown + ')');
+  assert.ok(towards, 'throws toward mario (to the left)');
+  assert.ok(Math.abs(b.x - b.home) <= L.HAMMER.range + 2, 'stays around its spot');
+  const s2 = L.newGame(L.rng(1)); quiet(s2); setBig(s2);
+  s2.hammers = [{ x: 10 * T, y: GROUND * T - 20, w: 8, h: 8, vx: 0, vy: 0, spin: 0 }]; s2.m.x = 10 * T;
+  L.step(s2, 0.01, {});
+  assert.strictEqual(s2.m.size, 'small', 'a hammer hurts');
+  const s3 = L.newGame(L.rng(1)); quiet(s3); const b3 = mkb(s3, 10 * T);
+  s3.m.x = 10 * T + 1; s3.m.y = GROUND * T - 24 - 20; s3.m.vy = 120; s3.m.onGround = false; s3.m.invuln = 0; s3.score = 0;
+  go(s3, 0.2);
+  assert.strictEqual(b3.state, 'dead', 'a stomp kills it');
+  assert.ok(s3.score >= L.HAMMER.points, 'worth 1000');
+  const s4 = L.newGame(L.rng(1)); quiet(s4); L.setSize(s4, 'fire'); const b4 = mkb(s4, 12 * T);
+  s4.m.x = 6 * T; s4.m.face = 1; s4.camX = 0; s4.m.invuln = 99; b4.hamT = 99; b4.jumpT = 99;
+  L.step(s4, 0.01, { fire: true }); go(s4, 1.2);
+  assert.strictEqual(b4.state, 'dead', 'one fireball kills it');
+  const s5 = L.newGame(L.rng(1)); quiet(s5); s5.m.star = 5; const b5 = mkb(s5, 10 * T); s5.m.x = 10 * T;
+  L.step(s5, 0.01, {});
+  assert.strictEqual(b5.state, 'dead');
+});
+
+test('lakitu follows mario inside its zone, drops spiny eggs that become spinies, and a spiny cannot be stomped', () => {
+  const st = L.newGame(L.rng(1), 3); const zone = st.enemies.find((e) => e.type === 'lakitu');
+  st.enemies = [zone]; st.plants = []; st.cannons = []; st.lifts = []; st.m.invuln = 99; zone.active = true;
+  st.m.x = 30 * T; st.m.y = GROUND * T - st.m.h; st.camX = st.m.x - 96; zone.x = 30 * T;
+  let eggs = 0, hatched = false;
+  for (let i = 0; i < 60 * 8; i++) { L.step(st, 1 / 60, {}); eggs += evs(st, 'egg').length; if (st.enemies.some((e) => e.type === 'spiny' && !e.egg && e.state === 'walk')) hatched = true; }
+  assert.ok(eggs >= 2, 'drops eggs (' + eggs + ')');
+  assert.ok(hatched, 'an egg hatched on the ground and walked');
+  assert.ok(zone.x >= zone.from && zone.x <= zone.to, 'stays in its zone');
+  // 마리오를 따라간다
+  const x0 = zone.x; st.m.x = 40 * T; st.camX = st.m.x - 96; for (let i = 0; i < 180; i++) L.step(st, 1 / 60, {});
+  assert.ok(zone.x > x0 + 40, 'moved after mario');
+  // 가시 거북은 밟으면 다친다
+  const s2 = L.newGame(L.rng(1)); quiet(s2); setBig(s2); const sp = mk(s2, 'spiny', 10 * T); sp.vx = 0;
+  s2.m.x = 10 * T; s2.m.y = GROUND * T - 28 - 12; s2.m.vy = 100; s2.m.onGround = false;
+  go(s2, 0.15);
+  assert.strictEqual(s2.m.size, 'small', 'stomping a spiny hurts');
+  assert.strictEqual(sp.state, 'walk');
+  // 불꽃이면 쓰러진다
+  const s3 = L.newGame(L.rng(1)); quiet(s3); L.setSize(s3, 'fire'); const sp4 = mk(s3, 'spiny', 12 * T); sp4.vx = 0; s3.m.x = 6 * T; s3.m.face = 1; s3.camX = 0; L.step(s3, 0.01, { fire: true }); go(s3, 1.2);
+  assert.strictEqual(sp4.state, 'dead');
+});
+
+test('lakitu can be stomped from a running jump and dies to a fireball', () => {
+  const mkl = (st, x) => { const e = L.makeEnemy('lakitu', x, 118, 77); e.active = true; e.from = 0; e.to = 900 * T; e.vx = 0; st.enemies.push(e); return e; };
+  let stomped = 0, walkStomped = 0;
+  for (const run of [true, false]) for (let jd = 20; jd <= 110; jd += 5) {
+    const st = L.newGame(L.rng(1)); quiet(st); const lk = mkl(st, 14 * T); st.m.invuln = 99; st.score = 0;
+    st.m.x = 4 * T; st.camX = 0;
+    let jumped = false;
+    for (let i = 0; i < 60 * 3 && lk.state === 'walk'; i++) {
+      const j = !jumped && st.m.onGround && lk.x - st.m.x < jd;
+      L.step(st, 1 / 60, { right: true, run, jump: j, jumpHeld: true }); if (j) jumped = true;
+    }
+    if (lk.state === 'dead') { stomped++; if (!run) walkStomped++; }
+  }
+  assert.ok(stomped >= 2, 'a jump reaches it (' + stomped + ')');
+  assert.ok(walkStomped >= 1, 'even a walking jump can');
+  // 불꽃은 뛰면서 쏴야 닿는다 (땅에서는 튕겨도 낮아서 안 닿는다)
+  const s2 = L.newGame(L.rng(1)); quiet(s2); L.setSize(s2, 'fire'); const l2 = mkl(s2, 14 * T); s2.m.x = 4 * T; s2.m.face = 1; s2.camX = 0; s2.m.invuln = 99;
+  for (let i = 0; i < 60 * 4 && l2.state === 'walk'; i++) L.step(s2, 1 / 60, { right: i % 90 > 40, jump: i % 50 === 0, jumpHeld: true, fire: i % 8 === 0 });
+  assert.strictEqual(l2.state, 'dead', 'fireballs thrown while jumping kill it');
+  const s3 = L.newGame(L.rng(1)); quiet(s3); L.setSize(s3, 'fire'); const l3 = mkl(s3, 14 * T); s3.m.x = 4 * T; s3.m.face = 1; s3.camX = 0; s3.m.invuln = 99;
+  for (let i = 0; i < 60 * 3; i++) L.step(s3, 1 / 60, { fire: i % 8 === 0 });
+  assert.strictEqual(l3.state, 'walk', 'but a fireball from the ground passes under him');
+});
+
+test('flying fish leap up only over pits inside their zone, hurt on touch, and a stomp or fireball beats them', () => {
+  const st = L.newGame(L.rng(5), 3); st.enemies = []; st.plants = []; st.cannons = []; st.lifts = []; st.m.invuln = 99;
+  assert.ok(st.level.cheeps, 'the sky stage has a fish zone');
+  const z = st.level.cheeps;
+  st.m.x = (z[0] + 4) * T; st.m.y = 5 * T; st.m.vy = 0; st.camX = st.m.x - 96;
+  let seen = 0, bad = 0;
+  for (let i = 0; i < 60 * 25; i++) {
+    st.m.x = (z[0] + 4) * T; st.m.y = 3 * T; st.m.vy = 0;
+    L.step(st, 1 / 60, {}); seen += evs(st, 'cheep').length;
+    for (const e of st.enemies) if (e.type === 'cheep' && e.state === 'walk' && e.y > L.VH) { if (st.tiles[GROUND][Math.floor(e.x / T)] !== '.' && L.solid(st, Math.floor(e.x / T), GROUND)) bad++; }
+  }
+  assert.ok(seen >= 5, 'fish appear (' + seen + ')');
+  assert.strictEqual(bad, 0, 'never from below solid ground');
+  const outside = L.newGame(L.rng(5), 3); outside.enemies = []; outside.plants = []; outside.cannons = []; outside.m.invuln = 99;
+  let n = 0; for (let i = 0; i < 60 * 10; i++) { outside.m.x = 20 * T; outside.m.y = 3 * T; L.step(outside, 1 / 60, {}); n += evs(outside, 'cheep').length; }
+  assert.strictEqual(n, 0, 'none outside the zone');
+  const s2 = L.newGame(L.rng(1)); quiet(s2); setBig(s2); const c = mk(s2, 'cheep', 10 * T, GROUND * T - 6); c.vx = 0; s2.m.x = 10 * T;
+  L.step(s2, 0.01, {});
+  assert.strictEqual(s2.m.size, 'small');
+  const s3 = L.newGame(L.rng(1)); quiet(s3); const c3 = mk(s3, 'cheep', 10 * T, GROUND * T - 70); c3.vx = 0; c3.vy = 0;
+  s3.m.x = 10 * T; s3.m.y = GROUND * T - 70 - 30; s3.m.vy = 150; s3.m.onGround = false; go(s3, 0.12);
+  assert.strictEqual(c3.state, 'dead');
+});
+
+test('stage one follows the original 1-1 order: a question block, brick-mushroom-brick, four pipes, a hidden 1UP, two pits, stairs, and a long end staircase', () => {
+  const s = L.STAGES[0];
+  assert.strictEqual(s.tiles[7][16], '?');
+  assert.strictEqual(s.tiles[7][21], 'M', 'the mushroom block comes early');
+  assert.strictEqual(s.tiles[7].slice(20, 25).join(''), 'BM' + 'B?B');
+  assert.strictEqual(s.tiles[7][64], 'H');
+  const pipes = []; for (let x = 0; x < s.w - 1; x++) if (s.tiles[GROUND - 2][x] === 'p' || s.tiles[GROUND - 2][x] === 'P') { if (s.tiles[GROUND - 2][x - 1] !== 'p' && s.tiles[GROUND - 2][x - 1] !== 'P') pipes.push(x); }
+  assert.ok(pipes.length >= 4, 'at least four pipes at heights two to three');
+  assert.strictEqual(s.ground.length, 4, 'two pits');
+  assert.ok(s.w >= 200, 'a long course like the original');
+  assert.ok(s.warps.length === 1);
+  const gaps = s.ground.slice(1).map(([a], i) => a - s.ground[i][1] - 1);
+  assert.deepStrictEqual(gaps, [2, 3, 2]);
 });

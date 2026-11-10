@@ -78,6 +78,9 @@ const sfx = {
   bossHit: () => tone(180, 0.15, 'square', 0.06, -80),
   firework: () => melody([1200, 800, 1600], 50, 'triangle', 0.05),
   crumble: () => tone(150, 0.08, 'sawtooth', 0.05, -80),
+  hammer: () => tone(340, 0.09, 'square', 0.03, -120),
+  egg: () => tone(520, 0.1, 'triangle', 0.03, -200),
+  cheep: () => tone(600, 0.14, 'sine', 0.04, 400),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
@@ -214,6 +217,9 @@ function handle(e) {
   else if (e.t === 'warp') { sfx.pipe(); if (e.kind === 'in') tutorialSignal('warp'); }
   else if (e.t === 'room') showBanner('보너스 방!', '동전을 모아 오른쪽 파이프로 나가요', 2.2, '#ffd23a');
   else if (e.t === 'cannon') sfx.cannon();
+  else if (e.t === 'hammer') sfx.hammer();
+  else if (e.t === 'egg') sfx.egg();
+  else if (e.t === 'cheep') sfx.cheep();
   else if (e.t === 'spring') { sfx.spring(); bumps.push({ tx: e.tx, ty: e.ty, t: 0 }); }
   else if (e.t === 'bossFire') sfx.bossFire();
   else if (e.t === 'bossHit') sfx.bossHit();
@@ -359,6 +365,42 @@ function drawBuzzy(e, x, y) {
   RC(x + (dir > 0 ? 8 : 0), y + 6, 4, 4, '#f0e8d0'); RC(x + (dir > 0 ? 10 : 1), y + 7, 1, 2, '#000');
   RC(x + (step ? 1 : 3), y + 10, 3, 2, '#f0e8d0'); RC(x + (step ? 8 : 6), y + 10, 3, 2, '#f0e8d0');
 }
+function drawSpiny(e, x, y) {
+  if (e.egg) { ctx.fillStyle = '#f0f0e0'; ctx.beginPath(); ctx.arc(x + 6, y + 6, 5.5, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#e83030'; for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(x + 3 + k * 3, y + 4 + (k % 2) * 3, 1.4, 0, Math.PI * 2); ctx.fill(); } return; }
+  const dir = e.vx >= 0 ? 1 : -1, step = Math.floor(clock * 6 + e.id) % 2;
+  ctx.fillStyle = '#e83030'; ctx.beginPath(); ctx.ellipse(x + 6, y + 8, 6.5, 6.5, 0, Math.PI, 0); ctx.fill(); RC(x, y + 8, 12, 3, '#f0e0a0');
+  ctx.fillStyle = '#fff'; for (const k of [0, 3, 6, 9]) { ctx.beginPath(); ctx.moveTo(x + k, y + 5); ctx.lineTo(x + k + 1.5, y); ctx.lineTo(x + k + 3, y + 5); ctx.fill(); }
+  RC(x + (dir > 0 ? 8 : 0), y + 6, 4, 4, '#f0d070'); RC(x + (dir > 0 ? 10 : 1), y + 7, 1, 2, '#000');
+  RC(x + (step ? 1 : 3), y + 10, 3, 2, '#f0d070'); RC(x + (step ? 8 : 6), y + 10, 3, 2, '#f0d070');
+}
+function drawHammerBro(e, x, y) {
+  const f = e.face || -1, px = (ox, oy, w, h, c) => RC(x + (f > 0 ? ox : e.w - ox - w), y + oy, w, h, c);
+  px(2, 0, 10, 4, '#2c9c2c'); px(1, 3, 12, 2, '#1c6c1c');                                  // 헬멧
+  px(5, 5, 7, 6, '#f0c878'); px(9, 7, 2, 2, '#000');                                         // 얼굴
+  px(2, 10, 9, 8, '#f0f0f0'); px(3, 12, 7, 5, '#2c9c2c');                                    // 등딱지·몸
+  const st = Math.floor(clock * 4 + e.id) % 2;
+  px(st ? 2 : 4, 18, 4, 6, '#f0c878'); px(st ? 8 : 6, 18, 4, 6, '#f0c878');
+  px(-1, 7, 3, 3, '#f0c878');                                                               // 망치 든 팔
+  if ((e.hamT || 0) < 0.5) { px(-2, 1, 4, 3, '#a8a8b0'); px(0, 3, 2, 5, '#8a5a2a'); }
+}
+function drawHammers() {
+  for (const hm of G.hammers) {
+    const x = Math.round(hm.x - G.camX) + 4, y = HUD + Math.round(hm.y) + 4;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(hm.spin * 14 * (hm.vx >= 0 ? 1 : -1));
+    RC(-1, -4, 2, 8, '#8a5a2a'); RC(-4, -5, 8, 4, '#a8a8b8'); ctx.restore();
+  }
+}
+function drawLakitu(e, x, y) {
+  const f = G.m.x < e.x ? -1 : 1;
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(x + 8, y + 15, 9, 5, 0, 0, Math.PI * 2); ctx.ellipse(x + 3, y + 13, 5, 4, 0, 0, Math.PI * 2); ctx.ellipse(x + 13, y + 13, 5, 4, 0, 0, Math.PI * 2); ctx.fill();   // 구름
+  RC(x + 4, y + 3, 8, 9, '#2c9c2c');                                                          // 등딱지
+  RC(x + (f > 0 ? 7 : 4), y + 1, 6, 6, '#f0d870'); RC(x + (f > 0 ? 10 : 5), y + 3, 2, 2, '#000'); RC(x + (f > 0 ? 6 : 3), y - 1, 8, 3, '#e8e8f0');   // 얼굴과 고글
+}
+function drawCheep(e, x, y) {
+  const dir = e.vx >= 0 ? 1 : -1, px = (ox, oy, w, h, c) => RC(x + (dir > 0 ? ox : 12 - ox - w), y + oy, w, h, c);
+  px(0, 3, 10, 7, '#e83030'); px(2, 1, 6, 3, '#e83030'); px(8, 4, 3, 5, '#f08060'); px(7, 4, 2, 2, '#fff'); px(8, 5, 1, 1, '#000'); px(10, 3, 2, 6, '#f0a090');
+  const fl = Math.floor(clock * 12 + e.id) % 2; px(-2 + fl, 4, 3, 4, '#f0a090');
+}
 function drawBullet(e, x, y) {
   const dir = e.vx >= 0 ? 1 : -1, px = (ox, oy, w, h, c) => RC(x + (dir > 0 ? ox : 14 - ox - w), y + oy, w, h, c);
   px(0, 1, 9, 10, '#181820'); px(7, 0, 5, 12, '#181820'); px(10, 2, 4, 8, '#181820'); px(9, 3, 3, 3, '#fff'); px(11, 4, 1, 2, '#000'); px(2, 2, 3, 1, '#3a3a48');
@@ -419,6 +461,10 @@ function drawEnemies() {
     else if (e.type === 'bullet') drawBullet(e, x, y);
     else if (e.type === 'podoboo') drawPodoboo(e, x, y);
     else if (e.type === 'buzzy') drawBuzzy(e, x, y);
+    else if (e.type === 'spiny') drawSpiny(e, x, y);
+    else if (e.type === 'hammerbro') drawHammerBro(e, x, y);
+    else if (e.type === 'lakitu') drawLakitu(e, x, y);
+    else if (e.type === 'cheep') drawCheep(e, x, y);
     else drawKoopa(e, x, y);
     ctx.restore();
   }
@@ -505,7 +551,7 @@ function draw() {
   drawPlants(); drawItems(); drawLifts();
   if (G.phase === 'warp') drawMario();                                                 // 파이프에 들어가고 나올 때는 파이프가 마리오를 가린다
   drawTiles(th);
-  drawEnemies(); drawBoss(); drawBars(); drawHazards(); if (G.phase !== 'warp') drawMario(); drawFx();
+  drawEnemies(); drawBoss(); drawBars(); drawHazards(); drawHammers(); if (G.phase !== 'warp') drawMario(); drawFx();
   ctx.restore();
   drawHud();
   if (banner.t > 0) {
