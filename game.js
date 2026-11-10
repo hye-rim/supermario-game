@@ -12,10 +12,13 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const $ = (id) => document.getElementById(id);
 
+const landscapeTouch = () => matchMedia('(pointer:coarse) and (orientation:landscape)').matches;
 function fit() {
   const controls = $('controls');
-  const ctrlH = getComputedStyle(controls).display === 'none' ? 0 : controls.offsetHeight + 10;
-  const scale = Math.min((innerWidth - 16) / VW, (innerHeight - 16 - ctrlH) / CH);
+  const land = landscapeTouch();
+  const ctrlH = land || getComputedStyle(controls).display === 'none' ? 0 : controls.offsetHeight + 10;
+  const ctrlW = land ? $('pad').offsetWidth + $('acts').offsetWidth + 24 : 0;       // 가로 화면에서는 조작판이 게임 양옆에 선다
+  const scale = Math.min((innerWidth - 16 - ctrlW) / VW, (innerHeight - (land ? 8 : 16) - ctrlH) / CH);
   const cssW = Math.max(150, Math.floor(VW * scale)), cssH = Math.floor(cssW * CH / VW);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
@@ -24,6 +27,7 @@ function fit() {
   ctx.imageSmoothingEnabled = false;
 }
 addEventListener('resize', fit);
+addEventListener('orientationchange', () => setTimeout(fit, 150));
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
@@ -116,21 +120,40 @@ addEventListener('keydown', (e) => {
   keys.add(e.key);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key); });
-addEventListener('blur', () => { keys.clear(); pad.left = pad.right = pad.down = pad.run = pad.jump = false; for (const b of document.querySelectorAll('#controls button')) b.classList.remove('on'); });
+addEventListener('blur', () => { keys.clear(); padPtr = null; pad.left = pad.right = pad.down = pad.run = pad.jump = false; for (const b of document.querySelectorAll('#controls button')) b.classList.remove('on'); });
 
 function bindHold(el, on, off) {
   el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('on'); on(); });
   const up = () => { el.classList.remove('on'); off(); };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
 }
-bindHold($('leftBt'), () => { pad.left = true; }, () => { pad.left = false; });
-bindHold($('rightBt'), () => { pad.right = true; }, () => { pad.right = false; });
-bindHold($('downBt'), () => { pad.down = true; }, () => { pad.down = false; });
+// 방향판: ◀ ▼ ▶ 를 따로 누르는 대신 하나로 묶어, 누른 채 손가락을 밀면 방향이 바로 바뀐다 (뗄 필요 없음)
+const padEl = $('pad');
+let padPtr = null;
+const padZone = (x) => {
+  const l = $('leftBt').getBoundingClientRect(), d = $('downBt').getBoundingClientRect(), r = $('rightBt').getBoundingClientRect();
+  return x < (l.right + d.left) / 2 ? 'left' : x < (d.right + r.left) / 2 ? 'down' : 'right';
+};
+function setPad(zone) {
+  pad.left = zone === 'left'; pad.down = zone === 'down'; pad.right = zone === 'right';
+  $('leftBt').classList.toggle('on', pad.left); $('downBt').classList.toggle('on', pad.down); $('rightBt').classList.toggle('on', pad.right);
+}
+padEl.addEventListener('pointerdown', (e) => { e.preventDefault(); padPtr = e.pointerId; try { padEl.setPointerCapture(e.pointerId); } catch (_) {} setPad(padZone(e.clientX)); });
+padEl.addEventListener('pointermove', (e) => { if (e.pointerId === padPtr) setPad(padZone(e.clientX)); });
+const padUp = (e) => { if (e.pointerId === padPtr) { padPtr = null; setPad(null); } };
+padEl.addEventListener('pointerup', padUp); padEl.addEventListener('pointercancel', padUp); padEl.addEventListener('lostpointercapture', padUp);
+// 자동 달리기: 켜면 달리기 버튼을 누르지 않아도 계속 달린다 (그 버튼은 불꽃 전용). 한 손가락으로 점프만 누르면 돼서 폰에서 훨씬 편하다
+let autoRun = store.get('smAuto') === '1';
+function applyAuto() {
+  $('runBt').innerHTML = autoRun ? '불꽃' : '달리기<br>불꽃';
+  for (const b of document.querySelectorAll('[data-act=auto]')) { b.classList.toggle('on', autoRun); b.textContent = `🏃 자동 달리기: ${autoRun ? '켜짐' : '꺼짐'}`; }
+}
+function toggleAuto() { autoRun = !autoRun; store.set('smAuto', autoRun ? '1' : '0'); applyAuto(); }
 bindHold($('runBt'), () => { pad.run = true; fireReq = 0.12; }, () => { pad.run = false; });
 bindHold($('jumpBt'), () => { pad.jump = true; jumpReq = 0.12; }, () => { pad.jump = false; });
 const readInput = () => ({
   left: heldAny(K.left) || pad.left, right: heldAny(K.right) || pad.right, down: heldAny(K.down) || pad.down,
-  run: heldAny(RUN) || pad.run, jump: jumpReq > 0, jumpHeld: heldAny(JUMP) || pad.jump, fire: fireReq > 0,
+  run: heldAny(RUN) || pad.run || autoRun, jump: jumpReq > 0, jumpHeld: heldAny(JUMP) || pad.jump, fire: fireReq > 0,
 });
 
 // ---------- 흐름 ----------
@@ -146,10 +169,10 @@ function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${
 function pause() {
   if (state !== 'play') return;
   state = 'paused';
-  showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button>');
+  showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button><button class="opt" data-act="auto"></button>');
 }
 function resume() { if (state === 'paused') { state = 'play'; hideOverlay(); } }
-function showOverlay(html) { $('overlay').innerHTML = html; $('overlay').classList.remove('hidden'); }
+function showOverlay(html) { $('overlay').innerHTML = html; $('overlay').classList.remove('hidden'); applyAuto(); }
 function hideOverlay() { $('overlay').classList.add('hidden'); }
 function showBanner(text, sub = '', t = 1.4, color = '#fff') { banner = { text, sub, t, color }; }
 function gameOver() {
@@ -178,6 +201,7 @@ $('overlay').addEventListener('click', (e) => {
   else if (b.dataset.stage) startGame(Number(b.dataset.stage));
   else if (b.dataset.act === 'again') startGame(G && !G.won ? G.stage : 1);
   else if (b.dataset.act === 'resume') resume();
+  else if (b.dataset.act === 'auto') toggleAuto();
   else if (b.dataset.act === 'title') location.reload();
 });
 
