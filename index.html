@@ -41,6 +41,15 @@
   #acts button { width:66px; font-size:15px; font-weight:900; line-height:1.25; }
   #jumpBt { background:rgba(255,106,58,.3) !important; border-color:rgba(255,150,100,.55) !important; height:104px !important; }
   #pad button.on, #acts button.on { background:rgba(255,210,58,.45) !important; color:#fff; transform:scale(.95); }
+  /* 조이스틱 방향 조작(기본): 왼쪽 칸 어디든 대면 거기가 중심. 좌우로 밀면 걷고 아래로 밀면 앉는다 */
+  #stickBase, #stickHint { display:none; }
+  body.stickmode #pad { position:relative; display:block; width:172px; height:104px; border-radius:22px; border:2px dashed rgba(255,255,255,.2); background:rgba(255,255,255,.05); overflow:hidden; }
+  body.stickmode #pad button { display:none; }
+  body.stickmode #stickBase { display:block; position:absolute; left:0; top:0; width:56px; height:56px; border-radius:50%; border:2px solid rgba(255,255,255,.35); background:rgba(255,255,255,.1); pointer-events:none; opacity:0; transform:translate(58px,24px); }
+  body.stickmode #stickBase.on { opacity:1; }
+  #stickKnob { position:absolute; left:50%; top:50%; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%; background:rgba(255,255,255,.6); }
+  body.stickmode #stickHint { display:block; position:absolute; inset:0; padding-top:30px; text-align:center; color:rgba(255,255,255,.4); font-size:13px; font-weight:800; line-height:1.4; pointer-events:none; }
+  body.stickmode #stickHint small { font-size:11px; font-weight:600; }
   #overlay button.opt { margin:0; padding:7px 16px; font-size:13px; background:rgba(255,255,255,.14); color:#fff; box-shadow:none; border:1px solid rgba(255,255,255,.3); }
   #overlay button.opt.on { background:rgba(255,210,58,.5); border-color:#ffd23a; }
   #pad { touch-action:none; padding:0; }
@@ -53,6 +62,8 @@
     #acts { order:2; flex-shrink:0; gap:5px; }
     #pad button, #acts button { height:72px; border-radius:16px; }
     #pad button { width:46px; font-size:20px; }
+    body.stickmode #pad { width:140px; height:92px; }
+    body.stickmode #stickHint { padding-top:22px; font-size:12px; }
     #acts button { width:54px; font-size:13px; }
     #jumpBt { height:92px !important; }
   }
@@ -74,15 +85,16 @@
       <p>달리고 뛰어서 <b>깃대</b>까지 가요! 🏁<br>굼바는 <b>밟고</b>, ? 블록은 <b>머리로 쳐요</b><br>코스는 모두 10개예요 (마지막은 쿠파!)</p>
       <div class="help">
         <span class="pc">⌨️ ← → 걷기 · ↓ 앉기·파이프 들어가기 · 스페이스(Z) 점프(오래 누르면 높이) · X(Shift) 달리기·불꽃 · P 일시정지 · M 소리</span>
-        <span class="touch">👆 ◀ ▶ 걷기(밀어서 방향 바꿈) · ▼ 앉기·파이프 · 점프 · 달리기·불꽃</span>
+        <span class="touch">👆 왼쪽 칸에 손을 대고 좌우로 밀어 걷기 · 아래로 밀면 앉기·파이프 · 점프 · 달리기·불꽃</span>
       </div>
       <button id="startBtn">시작하기</button>
+      <button class="opt" data-act="padmode">🕹 방향 조작</button>
       <button class="opt" data-act="auto">🏃 자동 달리기</button>
       <div class="stages" id="stages"></div>
     </div>
   </div>
   <div id="controls">
-    <div id="pad"><button id="leftBt">◀</button><button id="downBt">▼</button><button id="rightBt">▶</button></div>
+    <div id="pad"><button id="leftBt">◀</button><button id="downBt">▼</button><button id="rightBt">▶</button><div id="stickBase"><div id="stickKnob"></div></div><span id="stickHint">◀ 밀어서 이동 ▶<br><small>아래로 밀면 앉기</small></span></div>
     <div id="acts"><button id="runBt">달리기<br>불꽃</button><button id="jumpBt">점프</button></div>
   </div>
 </div>

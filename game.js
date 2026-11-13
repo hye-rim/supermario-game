@@ -99,7 +99,7 @@ let clock = 0, lastTick = 0;
 let jumpReq = 0;
 
 /* @test-hooks:start */
-window.__sm = { get G() { return G; }, get state() { return state; }, L, setG(g) { G = g; }, step: (dt) => update(dt), start: (n) => startGame(n) };
+window.__sm = { get pad() { return pad; }, get stick() { return stick; }, get padMode() { return padMode; }, togglePadMode, get G() { return G; }, get state() { return state; }, L, setG(g) { G = g; }, step: (dt) => update(dt), start: (n) => startGame(n) };
 /* @test-hooks:end */
 
 // ---------- 입력 ----------
@@ -127,9 +127,14 @@ function bindHold(el, on, off) {
   const up = () => { el.classList.remove('on'); off(); };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
 }
-// 방향판: ◀ ▼ ▶ 를 따로 누르는 대신 하나로 묶어, 누른 채 손가락을 밀면 방향이 바로 바뀐다 (뗄 필요 없음)
+// 방향 조작 두 가지 (일시정지·처음 화면에서 바꾼다, `smPad` 에 저장):
+//  ① 조이스틱(기본): 왼쪽 칸 어디든 손가락을 대면 그 자리가 중심이 되고, 좌우로 밀면 걷고 아래로 밀면 앉는다. 손을 옮기면 중심이 따라와서 반대로 꺾기 쉽다
+//  ② 방향 버튼: ◀ ▼ ▶ 를 하나로 묶어 두고 누른 채 밀면 방향이 바로 바뀐다
 const padEl = $('pad');
+let padMode = store.get('smPad') === 'buttons' ? 'buttons' : 'stick';
 let padPtr = null;
+const STICK = { dead: 9, reach: 24, down: 16 };            // 중심에서 이만큼 넘으면 걷는다 / 중심을 따라 옮기는 거리 / 아래로 이만큼 밀면 앉는다
+const stick = { ax: 0, ay: 0, x: 0, y: 0, on: false };
 const padZone = (x) => {
   const l = $('leftBt').getBoundingClientRect(), d = $('downBt').getBoundingClientRect(), r = $('rightBt').getBoundingClientRect();
   return x < (l.right + d.left) / 2 ? 'left' : x < (d.right + r.left) / 2 ? 'down' : 'right';
@@ -138,13 +143,42 @@ function setPad(zone) {
   pad.left = zone === 'left'; pad.down = zone === 'down'; pad.right = zone === 'right';
   $('leftBt').classList.toggle('on', pad.left); $('downBt').classList.toggle('on', pad.down); $('rightBt').classList.toggle('on', pad.right);
 }
-padEl.addEventListener('pointerdown', (e) => { e.preventDefault(); padPtr = e.pointerId; try { padEl.setPointerCapture(e.pointerId); } catch (_) {} setPad(padZone(e.clientX)); });
-padEl.addEventListener('pointermove', (e) => { if (e.pointerId === padPtr) setPad(padZone(e.clientX)); });
-const padUp = (e) => { if (e.pointerId === padPtr) { padPtr = null; setPad(null); } };
+function stickDraw() {
+  const base = $('stickBase'), knob = $('stickKnob');
+  if (!stick.on) { base.style.transform = ''; base.classList.remove('on'); knob.style.transform = ''; $('stickHint').style.opacity = ''; return; }
+  base.classList.add('on'); base.style.transform = `translate(${stick.ax - 28}px, ${stick.ay - 28}px)`;
+  const dx = stick.x - stick.ax, dy = stick.y - stick.ay, d = Math.hypot(dx, dy) || 1, k = Math.min(1, 20 / d);
+  knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`; $('stickHint').style.opacity = '0';
+}
+function stickMove(e) {
+  const r = padEl.getBoundingClientRect();
+  stick.x = Math.max(0, Math.min(r.width, e.clientX - r.left)); stick.y = Math.max(0, Math.min(r.height, e.clientY - r.top));
+  let dx = stick.x - stick.ax;
+  if (Math.abs(dx) > STICK.reach) { stick.ax += dx - Math.sign(dx) * STICK.reach; stick.ax = Math.max(28, Math.min(r.width - 28, stick.ax)); dx = stick.x - stick.ax; }   // 손가락을 따라 중심이 옮겨 온다
+  const dy = stick.y - stick.ay;
+  const down = dy > STICK.down && dy > Math.abs(dx) * 0.8;
+  pad.down = down; pad.left = !down && dx < -STICK.dead; pad.right = !down && dx > STICK.dead;
+  stickDraw();
+}
+padEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); padPtr = e.pointerId; try { padEl.setPointerCapture(e.pointerId); } catch (_) {}
+  if (padMode === 'buttons') { setPad(padZone(e.clientX)); return; }
+  const r = padEl.getBoundingClientRect();
+  stick.on = true; stick.ax = Math.max(28, Math.min(r.width - 28, e.clientX - r.left)); stick.ay = Math.max(28, Math.min(r.height - 28, e.clientY - r.top)); stickMove(e);
+});
+padEl.addEventListener('pointermove', (e) => { if (e.pointerId !== padPtr) return; if (padMode === 'buttons') setPad(padZone(e.clientX)); else stickMove(e); });
+const padUp = (e) => { if (e.pointerId === padPtr) { padPtr = null; setPad(null); stick.on = false; stickDraw(); } };
 padEl.addEventListener('pointerup', padUp); padEl.addEventListener('pointercancel', padUp); padEl.addEventListener('lostpointercapture', padUp);
+function applyPadMode() {
+  document.body.classList.toggle('stickmode', padMode === 'stick');
+  for (const b of document.querySelectorAll('[data-act=padmode]')) { b.classList.toggle('on', padMode === 'stick'); b.textContent = `🕹 방향 조작: ${padMode === 'stick' ? '조이스틱' : '방향 버튼'}`; }
+  setPad(null); stick.on = false; stickDraw(); padPtr = null; if (typeof fit === 'function') fit();
+}
+function togglePadMode() { padMode = padMode === 'stick' ? 'buttons' : 'stick'; store.set('smPad', padMode); applyPadMode(); }
 // 자동 달리기: 켜면 달리기 버튼을 누르지 않아도 계속 달린다 (그 버튼은 불꽃 전용). 한 손가락으로 점프만 누르면 돼서 폰에서 훨씬 편하다
 let autoRun = store.get('smAuto') === '1';
 function applyAuto() {
+  applyPadMode();
   $('runBt').innerHTML = autoRun ? '불꽃' : '달리기<br>불꽃';
   for (const b of document.querySelectorAll('[data-act=auto]')) { b.classList.toggle('on', autoRun); b.textContent = `🏃 자동 달리기: ${autoRun ? '켜짐' : '꺼짐'}`; }
 }
@@ -170,7 +204,7 @@ function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${
 function pause() {
   if (state !== 'play') return;
   state = 'paused';
-  showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button><button class="opt" data-act="auto"></button>');
+  showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button><button class="opt" data-act="padmode"></button><button class="opt" data-act="auto"></button>');
 }
 function resume() { if (state === 'paused') { state = 'play'; hideOverlay(); } }
 function showOverlay(html) { $('overlay').innerHTML = html; $('overlay').classList.remove('hidden'); applyAuto(); }
@@ -203,6 +237,7 @@ $('overlay').addEventListener('click', (e) => {
   else if (b.dataset.act === 'again') startGame(G && !G.won ? G.stage : 1);
   else if (b.dataset.act === 'resume') resume();
   else if (b.dataset.act === 'auto') toggleAuto();
+  else if (b.dataset.act === 'padmode') togglePadMode();
   else if (b.dataset.act === 'title') location.reload();
 });
 
