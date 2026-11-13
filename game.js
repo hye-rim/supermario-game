@@ -165,7 +165,8 @@ function startGame(stage = 1) {
   announceStage();
   sfx.powerup();
 }
-function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : G.level.boss ? '쿠파를 지나 도끼까지! 불꽃 다섯 번이면 쓰러져요' : '깃대까지 달려요!', 1.8); }
+const STAGE_HINT = { ice: '바닥이 미끄러워요! 미리 멈춰요', desert: '선인장에 닿으면 아파요. 뛰어서 넘어요', mushroom: '버섯 위로 올라가면 동전과 블록이 있어요', water: '점프 버튼을 누를 때마다 한 번 헤엄쳐요', ghost: '유령은 바라보면 멈춰요! 등을 돌리면 다가와요' };
+function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : G.level.boss ? '쿠파를 지나 도끼까지! 불꽃 다섯 번이면 쓰러져요' : (STAGE_HINT[G.level.theme] || '깃대까지 달려요!'), 1.8); }
 function pause() {
   if (state !== 'play') return;
   state = 'paused';
@@ -274,6 +275,11 @@ const THEME = {
   cave: { sky: ['#101028', '#1a1a3a'], ground: '#4a4a6a', top: '#6a6a9a', brick: '#6a5a8a', hill: '#24243e' },
   sky: { sky: ['#2c7cfc', '#bce4fc'], ground: '#f0f0f8', top: '#ffffff', brick: '#e0b05a', hill: '#ffffff' },
   castle: { sky: ['#1a0a0a', '#3a1010'], ground: '#5a5a62', top: '#7a7a82', brick: '#8a5a4a', hill: '#2a1414' },
+  ice: { sky: ['#9ccfff', '#eaf7ff'], ground: '#86c2e6', top: '#f4fbff', brick: '#78a8d8', hill: '#d6ecfb', ice: true },
+  desert: { sky: ['#f6b860', '#fde9b8'], ground: '#d49a48', top: '#f0cc80', brick: '#c07a38', hill: '#e8b868' },
+  mushroom: { sky: ['#5ab8a0', '#d4f4d8'], ground: '#6a4a2a', top: '#58b848', brick: '#b86a3a', hill: '#3a9a6a' },
+  water: { sky: ['#1a5aa8', '#4aa6e0'], ground: '#c4a878', top: '#e8d8a0', brick: '#a08860', hill: '#2a78b8' },
+  ghost: { sky: ['#120e1c', '#2a2040'], ground: '#3a3450', top: '#5a5478', brick: '#4a4060', hill: '#1c1830' },
 };
 function drawBackground(th, camX, themeName) {
   const g = ctx.createLinearGradient(0, HUD, 0, HUD + VH);
@@ -286,6 +292,35 @@ function drawBackground(th, camX, themeName) {
     for (let i = -1; i < 6; i++) { const x = i * 120 - (off % 120) + 20; ctx.beginPath(); ctx.ellipse(x + 40, HUD + GROUND * T, 46, themeName === 'grass' ? 30 : 14, 0, Math.PI, 0); ctx.fill(); }
     ctx.fillStyle = '#fff';
     for (let i = -1; i < 4; i++) { const x = i * 150 - ((off * 0.6) % 150) + 30, y = HUD + 24 + (i % 2) * 22; ctx.beginPath(); ctx.ellipse(x, y, 16, 7, 0, 0, Math.PI * 2); ctx.ellipse(x + 12, y + 2, 12, 6, 0, 0, Math.PI * 2); ctx.ellipse(x - 12, y + 2, 11, 5, 0, 0, Math.PI * 2); ctx.fill(); }
+  } else if (themeName === 'ice') {                                                     // 눈 덮인 산과 내리는 눈
+    ctx.fillStyle = th.hill;
+    for (let i = -1; i < 5; i++) { const x = i * 130 - (off % 130); ctx.beginPath(); ctx.moveTo(x, HUD + GROUND * T); ctx.lineTo(x + 50, HUD + 46 + (i & 1) * 14); ctx.lineTo(x + 100, HUD + GROUND * T); ctx.fill(); }
+    ctx.fillStyle = '#fff';
+    for (let i = 0; i < 34; i++) { const x = ((i * 53 + clock * (10 + (i % 4) * 5) - camX * 0.5) % (VW + 20) + VW + 20) % (VW + 20) - 10, y = HUD + ((i * 37 + clock * (18 + (i % 3) * 9)) % VH); ctx.fillRect(Math.round(x), Math.round(y), 2, 2); }
+  } else if (themeName === 'desert') {                                                  // 큰 해, 모래 언덕, 피라미드
+    ctx.fillStyle = '#fff3c0'; ctx.beginPath(); ctx.arc(190, HUD + 40, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#d8a050';
+    for (let i = -1; i < 3; i++) { const x = i * 200 - ((off * 0.5) % 200) + 60; ctx.beginPath(); ctx.moveTo(x, HUD + GROUND * T); ctx.lineTo(x + 36, HUD + 78); ctx.lineTo(x + 72, HUD + GROUND * T); ctx.fill(); }
+    ctx.fillStyle = th.hill;
+    for (let i = -1; i < 6; i++) { const x = i * 110 - (off % 110); ctx.beginPath(); ctx.ellipse(x + 40, HUD + GROUND * T, 54, 24, 0, Math.PI, 0); ctx.fill(); }
+  } else if (themeName === 'mushroom') {                                                // 멀리 보이는 커다란 버섯 숲
+    for (let i = -1; i < 6; i++) {
+      const x = i * 90 - (off % 90) + 30, h = 54 + (i % 3) * 14;
+      ctx.fillStyle = '#2e8a62'; ctx.fillRect(x + 8, HUD + GROUND * T - h, 8, h);
+      ctx.fillStyle = th.hill; ctx.beginPath(); ctx.ellipse(x + 12, HUD + GROUND * T - h, 26, 14, 0, Math.PI, 0); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    for (let i = -1; i < 4; i++) { const x = i * 150 - ((off * 0.6) % 150) + 30, y = HUD + 22 + (i % 2) * 20; ctx.beginPath(); ctx.ellipse(x, y, 16, 6, 0, 0, Math.PI * 2); ctx.fill(); }
+  } else if (themeName === 'water') {                                                   // 위에서 비치는 빛줄기
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    for (let i = -1; i < 6; i++) { const x = i * 70 - ((off * 0.5) % 70); ctx.beginPath(); ctx.moveTo(x, HUD); ctx.lineTo(x + 22, HUD); ctx.lineTo(x + 6, HUD + VH); ctx.lineTo(x - 28, HUD + VH); ctx.fill(); }
+    ctx.fillStyle = th.hill;
+    for (let i = -1; i < 7; i++) { const x = i * 80 - (off % 80); ctx.beginPath(); ctx.ellipse(x + 30, HUD + GROUND * T, 36, 20 + (i & 1) * 8, 0, Math.PI, 0); ctx.fill(); }
+  } else if (themeName === 'ghost') {                                                   // 달과 어두운 창문
+    ctx.fillStyle = '#e8e4c8'; ctx.beginPath(); ctx.arc(196, HUD + 44, 20, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = th.sky[0]; ctx.beginPath(); ctx.arc(204, HUD + 40, 17, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = th.hill;
+    for (let i = -1; i < 5; i++) { const x = i * 100 - (off % 100) + 16; ctx.fillRect(x, HUD + 64, 26, 54); ctx.beginPath(); ctx.arc(x + 13, HUD + 64, 13, Math.PI, 0); ctx.fill(); }
+    ctx.fillStyle = 'rgba(160,140,220,.10)'; ctx.fillRect(0, HUD + VH - 40, VW, 40);
   } else {
     ctx.fillStyle = th.hill;
     for (let i = -1; i < 8; i++) { const x = i * 70 - (off % 70); ctx.beginPath(); ctx.moveTo(x, HUD + 48); ctx.lineTo(x + 14, HUD + 70 + (i % 3) * 8); ctx.lineTo(x + 28, HUD + 48); ctx.fill(); }
@@ -299,9 +334,11 @@ function drawBackground(th, camX, themeName) {
 function drawTile(ch, x, y, th, tx, ty) {
   if (ch === '#') {
     const top = ty === GROUND;
+    if (th === THEME.water && ty < 4) { RC(x, y, T, T, '#5ab4ec'); RC(x, y + T - 3, T, 3, '#e8f6ff'); RC(x + 2 + (Math.floor(clock * 3 + tx) % 3) * 4, y + 4, 4, 1, 'rgba(255,255,255,.6)'); return; }     // 물속 코스의 위쪽은 물결 치는 수면
     RC(x, y, T, T, th.ground);
     if (top) { RC(x, y, T, 4, th.top); RC(x, y + 4, T, 1, 'rgba(0,0,0,.25)'); }
     RC(x + 1, y + 6, 14, 1, 'rgba(0,0,0,.18)'); RC(x + 7, y + 7, 1, 8, 'rgba(0,0,0,.18)');
+    if (th.ice && top) { RC(x + 2, y + 1, 5, 1, '#fff'); RC(x + 10, y + 2, 3, 1, '#d4f0ff'); }                        // 얼음 반짝임
   } else if (ch === 'B') {
     RC(x, y, T, T, th.brick); RC(x, y, T, 1, 'rgba(255,255,255,.35)');
     RC(x, y + 5, T, 1, '#000'); RC(x, y + 10, T, 1, '#000'); RC(x + 7, y, 1, 5, '#000'); RC(x + 3, y + 5, 1, 5, '#000'); RC(x + 11, y + 5, 1, 5, '#000'); RC(x + 7, y + 10, 1, 6, '#000');
@@ -338,6 +375,17 @@ function drawTile(ch, x, y, th, tx, ty) {
     RC(x, y, T, 5, '#c89050'); RC(x, y, T, 1, '#f0d0a0'); RC(x, y + 5, T, 1, '#5a3a18'); RC(x + 7, y, 1, 5, '#5a3a18');
   } else if (ch === 'A') {                                                              // 도끼
     RC(x + 7, y + 1, 2, 14, '#8a5a2a'); ctx.fillStyle = Math.floor(clock * 4) % 2 ? '#f0f0f8' : '#a8b0c0'; ctx.beginPath(); ctx.moveTo(x + 8, y + 1); ctx.lineTo(x + 2, y + 4); ctx.lineTo(x + 2, y + 9); ctx.lineTo(x + 8, y + 7); ctx.fill();
+  } else if (ch === 'K') {                                                              // 선인장: 위에 또 선인장이 있으면 몸통, 없으면 꼭대기
+    const topPart = G.tiles[ty - 1] && G.tiles[ty - 1][tx] !== 'K';
+    RC(x + 4, y + (topPart ? 2 : 0), 8, T - (topPart ? 2 : 0), '#2e9a3a'); RC(x + 5, y + (topPart ? 2 : 0), 2, T - (topPart ? 2 : 0), '#58c858'); RC(x + 10, y + (topPart ? 2 : 0), 2, T - (topPart ? 2 : 0), '#1a6a26');
+    if (topPart) { RC(x + 5, y + 1, 6, 1, '#2e9a3a'); RC(x + 1, y + 6, 3, 2, '#2e9a3a'); RC(x + 1, y + 3, 2, 4, '#2e9a3a'); RC(x + 12, y + 8, 3, 2, '#2e9a3a'); RC(x + 13, y + 5, 2, 4, '#2e9a3a'); }
+    ctx.fillStyle = '#f8f8d0'; for (const [a, b] of [[6, 4], [9, 9], [7, 13]]) ctx.fillRect(x + a, y + b, 1, 1);        // 가시
+  } else if (ch === 'T') {                                                              // 버섯 발판: 빨간 갓과 줄기 (줄기는 발판 가운데에만)
+    let a = tx, b = tx; while (G.tiles[ty][a - 1] === 'T') a--; while (G.tiles[ty][b + 1] === 'T') b++;
+    if (tx === Math.floor((a + b) / 2) && G.tiles[ty + 1] && G.tiles[ty + 1][tx] === '.') { RC(x + 3, y + T, 10, T * 2 + 2, '#f4e4c0'); RC(x + 3, y + T, 2, T * 2 + 2, '#fff4dc'); RC(x + 11, y + T, 2, T * 2 + 2, '#d4c4a0'); }
+    const first = tx === a, last = tx === b;
+    ctx.fillStyle = '#e83a3a'; ctx.beginPath(); ctx.moveTo(x + (first ? 2 : 0), y + T); ctx.lineTo(x + (first ? 2 : 0), y + 9); ctx.quadraticCurveTo(x + (first ? 2 : 0), y + 1, x + (first ? 8 : 0), y + 1); ctx.lineTo(x + T - (last ? 8 : 0), y + 1); ctx.quadraticCurveTo(x + T - (last ? 2 : 0), y + 1, x + T - (last ? 2 : 0), y + 9); ctx.lineTo(x + T - (last ? 2 : 0), y + T); ctx.fill();
+    RC(x + 3, y + 4, 4, 3, '#fff'); RC(x + 10, y + 7, 3, 3, '#fff'); RC(x, y + 14, T, 2, '#b82020');
   } else if (ch === 'F') { RC(x + 7, y, 2, T, '#e8e8e8'); RC(x + 7, y, 1, T, '#fff'); }
   else if (ch === 'f') { RC(x + 7, y + 6, 2, 10, '#e8e8e8'); ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(x + 8, y + 5, 4, 0, Math.PI * 2); ctx.fill(); }
 }
@@ -425,6 +473,23 @@ function drawCheep(e, x, y) {
   px(0, 3, 10, 7, '#e83030'); px(2, 1, 6, 3, '#e83030'); px(8, 4, 3, 5, '#f08060'); px(7, 4, 2, 2, '#fff'); px(8, 5, 1, 1, '#000'); px(10, 3, 2, 6, '#f0a090');
   const fl = Math.floor(clock * 12 + e.id) % 2; px(-2 + fl, 4, 3, 4, '#f0a090');
 }
+function drawSwimCheep(e, x, y) {                                                       // 헤엄치는 물고기(파란색)
+  const dir = e.vx >= 0 ? 1 : -1, px = (ox, oy, w, h, c) => RC(x + (dir > 0 ? ox : 12 - ox - w), y + oy, w, h, c);
+  px(0, 3, 10, 7, '#2a7ae8'); px(2, 1, 6, 3, '#2a7ae8'); px(8, 4, 3, 5, '#8ac0ff'); px(7, 4, 2, 2, '#fff'); px(8, 5, 1, 1, '#000'); px(10, 3, 2, 6, '#a8d4ff');
+  const fl = Math.floor(clock * 10 + e.id) % 2; px(-2 + fl, 4, 3, 4, '#a8d4ff');
+}
+function drawUrchin(e, x, y) {                                                          // 성게: 보라색 가시 공
+  const cx = x + 6, cy = y + 6, spin = clock * 1.5;
+  ctx.fillStyle = '#6a2a9a'; for (let k = 0; k < 8; k++) { const a = spin + k * Math.PI / 4; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a - 0.2) * 4, cy + Math.sin(a - 0.2) * 4); ctx.lineTo(cx + Math.cos(a) * 8.5, cy + Math.sin(a) * 8.5); ctx.lineTo(cx + Math.cos(a + 0.2) * 4, cy + Math.sin(a + 0.2) * 4); ctx.fill(); }
+  ctx.fillStyle = '#9a4ad0'; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fill(); RC(x + 3, y + 4, 2, 2, '#fff'); RC(x + 7, y + 4, 2, 2, '#fff'); RC(x + 4, y + 5, 1, 1, '#000'); RC(x + 8, y + 5, 1, 1, '#000');
+}
+function drawBoo(e, x, y) {                                                             // 수줍은 유령: 바라보면 얼굴을 가리고, 등을 돌리면 입을 벌리고 다가온다
+  const f = G.m.x + G.m.w / 2 < e.x + e.w / 2 ? -1 : 1, cx = x + 6, cy = y + 6;
+  ctx.fillStyle = e.shy ? '#c8c8e8' : '#f8f8ff'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx - 6, cy + 3); ctx.lineTo(cx - 9, cy + 9); ctx.lineTo(cx - 3, cy + 7); ctx.lineTo(cx, cy + 10); ctx.lineTo(cx + 3, cy + 7); ctx.lineTo(cx + 9, cy + 9); ctx.lineTo(cx + 6, cy + 3); ctx.fill();    // 아랫부분
+  if (e.shy) { RC(cx - 5, cy - 3, 4, 4, '#a8a8c8'); RC(cx + 1, cy - 3, 4, 4, '#a8a8c8'); RC(cx - 4, cy - 1, 2, 1, '#000'); RC(cx + 2, cy - 1, 2, 1, '#000'); }       // 두 손으로 눈을 가린다
+  else { RC(cx - 4, cy - 4, 3, 3, '#000'); RC(cx + 1, cy - 4, 3, 3, '#000'); RC(cx - 3 + (f > 0 ? 1 : 0), cy - 3, 1, 1, '#fff'); RC(cx + 2 + (f > 0 ? 1 : 0), cy - 3, 1, 1, '#fff'); RC(cx - 3, cy + 1, 6, 3, '#6a1a1a'); RC(cx - 2, cy + 1, 4, 1, '#fff'); }
+}
 function drawBullet(e, x, y) {
   const dir = e.vx >= 0 ? 1 : -1, px = (ox, oy, w, h, c) => RC(x + (dir > 0 ? ox : 14 - ox - w), y + oy, w, h, c);
   px(0, 1, 9, 10, '#181820'); px(7, 0, 5, 12, '#181820'); px(10, 2, 4, 8, '#181820'); px(9, 3, 3, 3, '#fff'); px(11, 4, 1, 2, '#000'); px(2, 2, 3, 1, '#3a3a48');
@@ -489,6 +554,9 @@ function drawEnemies() {
     else if (e.type === 'hammerbro') drawHammerBro(e, x, y);
     else if (e.type === 'lakitu') drawLakitu(e, x, y);
     else if (e.type === 'cheep') drawCheep(e, x, y);
+    else if (e.type === 'swimcheep') drawSwimCheep(e, x, y);
+    else if (e.type === 'urchin') drawUrchin(e, x, y);
+    else if (e.type === 'boo') drawBoo(e, x, y);
     else drawKoopa(e, x, y);
     ctx.restore();
   }
@@ -576,6 +644,15 @@ function draw() {
   if (G.phase === 'warp') drawMario();                                                 // 파이프에 들어가고 나올 때는 파이프가 마리오를 가린다
   drawTiles(th);
   drawEnemies(); drawBoss(); drawBars(); drawHazards(); drawHammers(); if (G.phase !== 'warp') drawMario(); drawFx();
+  if (!G.inRoom && G.level.water) {                                                    // 물속: 파란 막과 올라가는 거품
+    ctx.fillStyle = 'rgba(30,110,210,.22)'; ctx.fillRect(0, HUD, VW, VH);
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    for (let i = 0; i < 12; i++) { const bx = ((i * 41 + Math.sin(clock + i) * 5 - G.camX * 0.8) % (VW + 20) + VW + 20) % (VW + 20) - 10, by = HUD + VH - ((clock * (14 + (i % 4) * 6) + i * 29) % VH); ctx.beginPath(); ctx.arc(bx, by, 1 + (i % 3) * 0.7, 0, Math.PI * 2); ctx.fill(); }
+  }
+  if (!G.inRoom && G.level.theme === 'ghost') {                                         // 유령의 집: 마리오 주변만 밝게
+    const mx = G.m.x - G.camX + G.m.w / 2, my = HUD + G.m.y + G.m.h / 2, gr = ctx.createRadialGradient(mx, my, 40, mx, my, 150);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,12,.55)'); ctx.fillStyle = gr; ctx.fillRect(0, HUD, VW, VH);
+  }
   ctx.restore();
   drawHud();
   if (banner.t > 0) {

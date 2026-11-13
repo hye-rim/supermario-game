@@ -6,6 +6,7 @@ const assert = require('node:assert');
 const L = require('../logic.js');
 
 const { T, GROUND } = L;
+const N = (name) => L.STAGES.findIndex((q) => q.name === name) + 1;       // 코스 이름으로 번호를 찾는다 (코스 순서가 바뀌어도 시험이 안 깨지게)
 const run = (st, secs, input = {}) => { for (let i = 0; i < Math.round(secs / 0.01); i++) L.step(st, 0.01, input); };
 const evs = (st, t) => st.events.filter((e) => e.t === t);
 // 평평한 땅 한 줄뿐인 시험용 세상 (pits: [[시작 칸, 끝 칸]] 구멍)
@@ -24,7 +25,7 @@ const goomba = (st, x, y = GROUND * T - 12, vx = 0) => { const e = L.makeEnemy('
 const koopa = (st, x, vx = 0) => { const e = L.makeEnemy('koopa', x, GROUND * T - 16, 98); e.active = true; e.vx = vx; st.enemies.push(e); return e; };
 
 test('every stage is a valid course: right size, ground, start, flag, and no impossible pits', () => {
-  assert.strictEqual(L.STAGES.length, 5);
+  assert.strictEqual(L.STAGES.length, 10);
   for (const s of L.STAGES) {
     assert.strictEqual(s.tiles.length, L.ROWS);
     assert.ok(s.tiles.every((r) => r.length === s.w), `${s.name}: all rows same width`);
@@ -383,7 +384,7 @@ test('grabbing the flag higher is worth more, and the time bonus never counts tw
 });
 
 test('clearing the last stage wins the game after the finish', () => {
-  const st = L.newGame(L.rng(1), 5);
+  const st = L.newGame(L.rng(1), N('쿠파 성'));
   st.m.x = 56 * T; st.m.y = GROUND * T - st.m.h; st.m.onGround = true; st.camX = st.m.x - 96; st.enemies = []; st.boss.state = 'dead'; st.boss.y = 400; L.step(st, 0.01, {});
   assert.ok(st.won);
   const types = [];
@@ -434,7 +435,7 @@ test('the practice mode gives more lives and no time limit', () => {
 
 test('random play never breaks the rules on any stage (fuzz)', () => {
   for (let seed = 1; seed <= 24; seed++) {
-    const r = L.rng(seed), st = L.newGame(L.rng(seed * 9), 1 + (seed % 4));
+    const r = L.rng(seed), st = L.newGame(L.rng(seed * 9), 1 + (seed % (L.STAGES.length - 1)));
     let right = true, jump = false;
     for (let i = 0; i < 4000 && st.phase !== 'over'; i++) {
       if (i % 20 === 0) { right = r() < 0.8; }
@@ -866,7 +867,7 @@ test('on every stage the last staircase is eight high and right next to the pole
 });
 
 test('a jump from the top step grabs the top of the pole for the most points, on every stage', () => {
-  for (let stage = 1; stage <= 4; stage++) {
+  for (let stage = 1; stage < L.STAGES.length; stage++) {
     const lv = L.STAGES[stage - 1], top = lv.flag - 3;
     let best = 0;
     for (const run of [false, true]) for (let off = 0; off <= 30; off += 2) {
@@ -884,7 +885,7 @@ test('a jump from the top step grabs the top of the pole for the most points, on
 });
 
 test('running up the last staircase and jumping off the top also finishes with the most points', () => {
-  for (let stage = 1; stage <= 4; stage++) {
+  for (let stage = 1; stage < L.STAGES.length; stage++) {
     const lv = L.STAGES[stage - 1], seg = lv.ground.find(([a, b]) => lv.flag >= a && lv.flag <= b);
     const st = L.newGame(L.rng(1), stage); st.enemies = []; st.plants = []; st.m.invuln = 99;
     st.m.x = Math.max(seg[0] + 1, lv.flag - 14) * T; st.m.y = GROUND * T - st.m.h; st.camX = st.m.x - 96;
@@ -999,7 +1000,7 @@ test('a fire bar spins and burns, but not a star mario', () => {
 });
 
 test('a moving platform carries mario across a wide gap, and it can be jumped onto from below', () => {
-  const st = L.newGame(L.rng(1), 3); quiet(st);
+  const st = L.newGame(L.rng(1), N('하늘 구름')); quiet(st);
   const lv = st.level;
   st.lifts = [{ x: lv.lifts[0].x, y: lv.lifts[0].y, w: lv.lifts[0].w, h: 6, x0: lv.lifts[0].x, y0: lv.lifts[0].y, axis: 'x', range: lv.lifts[0].range, speed: lv.lifts[0].speed, p: 0, dx: 0, dy: 0 }];
   const l = st.lifts[0];
@@ -1052,7 +1053,7 @@ test('a hidden block can be walked through, jumped through from above, and gives
 });
 
 test('the last stage has bowser on a bridge: five fireballs beat him, touching hurts, and the axe collapses the bridge', () => {
-  const st = L.newGame(L.rng(1), 5);
+  const st = L.newGame(L.rng(1), N('쿠파 성'));
   assert.ok(st.boss && st.boss.state === 'alive' && st.boss.hp === 5);
   assert.ok(st.level.tiles[GROUND].slice(39, 55).every((c) => c === 'g'), 'a bridge');
   assert.strictEqual(st.level.tiles[10][56], 'A', 'the axe');
@@ -1061,12 +1062,12 @@ test('the last stage has bowser on a bridge: five fireballs beat him, touching h
   let fired = 0; for (let i = 0; i < 600; i++) { L.step(st, 1 / 60, {}); fired += evs(st, 'bossFire').length; }
   assert.ok(fired >= 2, 'breathes fire now and then');
   // 닿으면 아프다
-  const s2 = L.newGame(L.rng(1), 5); s2.enemies = []; setBig(s2); s2.boss.active = true;
+  const s2 = L.newGame(L.rng(1), N('쿠파 성')); s2.enemies = []; setBig(s2); s2.boss.active = true;
   s2.m.x = s2.boss.x; s2.m.y = s2.boss.y; s2.camX = s2.boss.x - 96; s2.m.invuln = 0;
   L.step(s2, 0.01, {});
   assert.strictEqual(s2.m.size, 'small');
   // 불꽃 다섯 번
-  const s3 = L.newGame(L.rng(1), 5); s3.enemies = []; s3.bars = []; s3.cannons = []; s3.boss.active = true; s3.boss.vx = 0; s3.boss.dirT = 99; s3.boss.fireT = 99; s3.boss.jumpT = 99;
+  const s3 = L.newGame(L.rng(1), N('쿠파 성')); s3.enemies = []; s3.bars = []; s3.cannons = []; s3.boss.active = true; s3.boss.vx = 0; s3.boss.dirT = 99; s3.boss.fireT = 99; s3.boss.jumpT = 99;
   s3.camX = s3.boss.x - 150; s3.m.x = s3.camX + 20; s3.m.invuln = 99;
   const pts0 = s3.score;
   for (let k = 0; k < 5; k++) {
@@ -1077,7 +1078,7 @@ test('the last stage has bowser on a bridge: five fireballs beat him, touching h
   assert.strictEqual(s3.boss.state, 'dead');
   assert.ok(s3.score - pts0 >= L.BOSS.points);
   // 도끼: 다리가 무너지고 쿠파가 떨어지고 게임을 이긴다
-  const s4 = L.newGame(L.rng(1), 5); s4.enemies = []; s4.bars = []; s4.cannons = []; s4.boss.active = true; s4.m.invuln = 99;
+  const s4 = L.newGame(L.rng(1), N('쿠파 성')); s4.enemies = []; s4.bars = []; s4.cannons = []; s4.boss.active = true; s4.m.invuln = 99;
   s4.m.x = 56 * T; s4.m.y = GROUND * T - s4.m.h; s4.camX = s4.m.x - 96; s4.timeLeft = 100;
   const types = [];
   for (let i = 0; i < 2500 && s4.phase !== 'over'; i++) { L.step(s4, 1 / 60, {}); types.push(...s4.events.map((e) => e.t)); }
@@ -1130,7 +1131,7 @@ test('hammer bro throws hammers toward mario, hurts on touch, and dies to a stom
 });
 
 test('lakitu follows mario inside its zone, drops spiny eggs that become spinies, and a spiny cannot be stomped', () => {
-  const st = L.newGame(L.rng(1), 3); const zone = st.enemies.find((e) => e.type === 'lakitu');
+  const st = L.newGame(L.rng(1), N('하늘 구름')); const zone = st.enemies.find((e) => e.type === 'lakitu');
   st.enemies = [zone]; st.plants = []; st.cannons = []; st.lifts = []; st.m.invuln = 99; zone.active = true;
   st.m.x = 30 * T; st.m.y = GROUND * T - st.m.h; st.camX = st.m.x - 96; zone.x = 30 * T;
   let eggs = 0, hatched = false;
@@ -1177,7 +1178,7 @@ test('lakitu can be stomped from a running jump and dies to a fireball', () => {
 });
 
 test('flying fish leap up only over pits inside their zone, hurt on touch, and a stomp or fireball beats them', () => {
-  const st = L.newGame(L.rng(5), 3); st.enemies = []; st.plants = []; st.cannons = []; st.lifts = []; st.m.invuln = 99;
+  const st = L.newGame(L.rng(5), N('하늘 구름')); st.enemies = []; st.plants = []; st.cannons = []; st.lifts = []; st.m.invuln = 99;
   assert.ok(st.level.cheeps, 'the sky stage has a fish zone');
   const z = st.level.cheeps;
   st.m.x = (z[0] + 4) * T; st.m.y = 5 * T; st.m.vy = 0; st.camX = st.m.x - 96;
@@ -1189,7 +1190,7 @@ test('flying fish leap up only over pits inside their zone, hurt on touch, and a
   }
   assert.ok(seen >= 5, 'fish appear (' + seen + ')');
   assert.strictEqual(bad, 0, 'never from below solid ground');
-  const outside = L.newGame(L.rng(5), 3); outside.enemies = []; outside.plants = []; outside.cannons = []; outside.m.invuln = 99;
+  const outside = L.newGame(L.rng(5), N('하늘 구름')); outside.enemies = []; outside.plants = []; outside.cannons = []; outside.m.invuln = 99;
   let n = 0; for (let i = 0; i < 60 * 10; i++) { outside.m.x = 20 * T; outside.m.y = 3 * T; L.step(outside, 1 / 60, {}); n += evs(outside, 'cheep').length; }
   assert.strictEqual(n, 0, 'none outside the zone');
   const s2 = L.newGame(L.rng(1)); quiet(s2); setBig(s2); const c = mk(s2, 'cheep', 10 * T, GROUND * T - 6); c.vx = 0; s2.m.x = 10 * T;
@@ -1213,4 +1214,124 @@ test('stage one follows the original 1-1 order: a question block, brick-mushroom
   assert.ok(s.warps.length === 1);
   const gaps = s.ground.slice(1).map(([a], i) => a - s.ground[i][1] - 1);
   assert.deepStrictEqual(gaps, [2, 3, 2]);
+});
+
+// ---------- 새 코스: 설원 · 사막 · 버섯 숲 · 물속 · 유령의 집 ----------
+const stageGame = (name, seed = 1) => { const st = L.newGame(L.rng(seed), N(name)); quiet(st); st.m.invuln = 0; return st; };
+
+test('the course list has the ten courses in order and the boss is last', () => {
+  assert.deepStrictEqual(L.STAGES.map((s) => s.name), ['초원', '설원', '동굴', '사막', '버섯 숲', '하늘 구름', '물속', '유령의 집', '성', '쿠파 성'].map((x) => x));
+  assert.ok(L.STAGES[L.STAGES.length - 1].boss && L.STAGES.slice(0, -1).every((s) => !s.boss));
+  assert.ok(L.STAGES[1].ice && L.STAGES[6].water && !L.STAGES[0].ice && !L.STAGES[0].water);
+});
+
+const iceWorld = (ice) => { const st = world({ w: 400, x: 4 }); st.level = { ...st.level, ice, water: false }; return st; };
+
+test('on ice mario speeds up and slows down much more slowly than on grass', () => {
+  const dist = (ice) => {
+    const st = iceWorld(ice);
+    go(st, 0.5, { right: true }); const v = st.m.vx;
+    go(st, 3, { right: true }); const vTop = st.m.vx; const xr = st.m.x;
+    go(st, 4, {}); return { v, vTop, stop: st.m.x - xr };
+  };
+  const ice = dist(true), grass = dist(false);
+  assert.ok(ice.v < grass.v * 0.6, 'slower to get going on ice: ' + ice.v + ' vs ' + grass.v);
+  assert.ok(ice.vTop > 60, 'but it does get going');
+  assert.ok(ice.stop > grass.stop * 3, 'slides much farther after letting go: ' + ice.stop + ' vs ' + grass.stop);
+});
+
+test('on ice turning around skids for a long time and plain ground is not affected', () => {
+  const st = iceWorld(true); go(st, 5, { right: true, run: true });
+  assert.ok(st.m.vx > 100, 'got up to speed on ice: ' + st.m.vx);
+  go(st, 0.3, { left: true }); assert.ok(st.m.vx > 30, 'still sliding right after 0.3s of pushing left: ' + st.m.vx);
+  const g = iceWorld(false); go(g, 5, { right: true, run: true }); go(g, 0.6, { left: true }); assert.ok(g.m.vx < 30, 'on grass the skid is nearly over: ' + g.m.vx);
+});
+
+test('a cactus hurts on touch, does not block, and a star mario is safe', () => {
+  const s = L.STAGES[N('사막') - 1]; let cx = -1, h = 0;
+  for (let x = 0; x < s.w; x++) if (s.tiles[GROUND - 1][x] === 'K') { cx = x; break; }
+  for (let y = GROUND - 1; y >= 0 && s.tiles[y][cx] === 'K'; y--) h++;
+  assert.ok(cx > 0 && h >= 1 && !L.SOLID.has('K'));
+  const st = stageGame('사막'); setBig(st); st.m.x = (cx - 2) * T; st.m.vx = 0; go(st, 0.9, { right: true });
+  assert.ok(st.m.x > (cx - 1) * T, 'walked into the cactus (no wall)'); assert.strictEqual(st.m.size, 'small', 'and got hurt');
+  const sr = stageGame('사막'); sr.m.star = 5; sr.m.x = (cx - 2) * T; go(sr, 0.9, { right: true }); assert.strictEqual(sr.m.size, 'small'); assert.ok(!sr.m.dead);
+  const sj = stageGame('사막'); sj.m.x = (cx - 2) * T; sj.m.vx = 80; go(sj, 0.1, { right: true, jump: true, jumpHeld: true });
+  for (let i = 0; i < 90 && !sj.m.onGround; i++) L.step(sj, 1 / 60, { right: true, jumpHeld: true });
+  assert.ok(!sj.m.dead && sj.m.x > (cx + 1) * T, 'a plain jump clears a cactus');
+});
+
+test('mushroom platforms are solid to stand on and sit above the ground', () => {
+  assert.ok(L.SOLID.has('T'));
+  const s = L.STAGES[N('버섯 숲') - 1]; let n = 0; for (const r of s.tiles) for (const c of r) if (c === 'T') n++;
+  assert.ok(n >= 20, 'plenty of mushroom platforms');
+  const st = stageGame('버섯 숲'); const tx = 15, ty = 7; assert.strictEqual(st.tiles[ty][tx], 'T');
+  st.m.x = tx * T + 2; st.m.y = ty * T - st.m.h - 30; st.m.vy = 0; st.m.onGround = false; go(st, 0.6, {});
+  assert.ok(st.m.onGround && Math.abs(st.m.y + st.m.h - ty * T) < 0.5, 'lands on top of the cap');
+});
+
+test('underwater each press is one swim stroke: slow sinking, no running, and normal jumping elsewhere', () => {
+  const st = stageGame('물속'); st.m.x = 4 * T; st.m.y = 5 * T; st.m.vy = 0; st.m.onGround = false;
+  go(st, 1, {}); assert.ok(st.m.vy <= L.SWIM_FALL + 0.01, 'sinks slowly'); assert.ok(st.m.vy > 0);
+  const y0 = st.m.y; L.step(st, 1 / 60, { jump: true }); assert.ok(st.m.vy < 0, 'a stroke pushes up'); go(st, 0.3, {}); assert.ok(st.m.y < y0, 'rose after the stroke');
+  const hold = stageGame('물속'); hold.m.x = 4 * T; hold.m.y = 6 * T; hold.m.vy = 0; hold.m.onGround = false; for (let i = 0; i < 120; i++) L.step(hold, 1 / 60, { jumpHeld: true });
+  assert.ok(hold.m.y > 6 * T, 'holding the button alone does not swim');
+  const r = stageGame('물속'); go(r, 3, { right: true, run: true }); assert.ok(Math.abs(r.m.vx) <= L.SWIM_V + 0.5, 'no running in water');
+  const g = stageGame('초원'); g.m.x = 4 * T; L.step(g, 1 / 60, { jump: true, jumpHeld: true }); assert.ok(g.m.vy < -200, 'on land a jump is a jump');
+});
+
+test('swimming up is limited by the ceiling and mario can swim over the coral walls', () => {
+  const st = stageGame('물속'); st.m.x = 4 * T; st.m.y = 5 * T; st.m.onGround = false; st.m.vy = 0;
+  for (let i = 0; i < 400; i++) L.step(st, 1 / 60, { jump: i % 8 === 0 }); assert.ok(st.m.y >= 2 * T - 0.01, 'stopped by the ceiling'); assert.ok(!st.m.dead);
+});
+
+test('a swimming fish patrols near its home, a stomp or fire beats it, an urchin cannot be beaten but a star passes', () => {
+  const st = L.newGame(L.rng(1), N('물속')); const f = st.enemies.find((e) => e.type === 'swimcheep'); st.m.invuln = 99;
+  f.active = true; const home = f.x; let min = f.x, max = f.x; for (let i = 0; i < 600; i++) { L.step(st, 1 / 60, {}); if (f.state === 'walk') { min = Math.min(min, f.x); max = Math.max(max, f.x); } }
+  assert.ok(max - min > 20 && max - min < 120, 'stays near home: ' + (max - min)); assert.ok(Math.abs((min + max) / 2 - home) < 60);
+  const s2 = stageGame('물속'); const c = mk(s2, 'swimcheep', 10 * T, 5 * T); c.home = c.x; c.y0 = c.y; c.vx = 0; s2.m.x = 10 * T; s2.m.y = 5 * T - 30; s2.m.vy = 150; s2.m.onGround = false; go(s2, 0.8);
+  assert.strictEqual(c.state, 'dead', 'a stomp beats the fish');
+  const s3 = stageGame('물속'); const u = mk(s3, 'urchin', 10 * T, 7 * T); s3.m.x = 10 * T; s3.m.y = 7 * T - 20; s3.m.vy = 150; s3.m.onGround = false; go(s3, 0.2);
+  assert.strictEqual(u.state, 'walk', 'an urchin is not stomped'); assert.ok(s3.m.dead || s3.m.invuln > 0 || s3.m.size === 'small');
+  const s4 = stageGame('물속'); s4.m.star = 5; const u4 = mk(s4, 'urchin', 10 * T, 7 * T); s4.m.x = 10 * T; s4.m.y = 7 * T; s4.m.vy = 0; go(s4, 0.2); assert.ok(!s4.m.dead);
+});
+
+test('a shy ghost freezes when mario faces it and drifts toward him when his back is turned', () => {
+  const st = stageGame('유령의 집'); st.m.x = 10 * T; st.m.y = GROUND * T - st.m.h; st.m.face = 1;
+  const b = mk(st, 'boo', 16 * T, 8 * T); st.camX = 8 * T;
+  go(st, 1, {}); assert.strictEqual(b.shy, true, 'mario faces right and the ghost is to his right'); assert.ok(Math.abs(b.vx) < 0.5); const x1 = b.x; go(st, 1, {}); assert.ok(Math.abs(b.x - x1) < 0.5, 'frozen');
+  st.m.face = -1; go(st, 1.5, {}); assert.strictEqual(b.shy, false); assert.ok(b.x < x1 - 15, 'it came closer: ' + (x1 - b.x));
+  const s2 = stageGame('유령의 집'); s2.m.x = 10 * T; s2.m.face = 1; const b2 = mk(s2, 'boo', 4 * T, 8 * T); s2.camX = 0; go(s2, 1, {}); assert.strictEqual(b2.shy, false, 'a ghost behind him is not frozen by facing the other way');
+  assert.ok(b2.x > 4 * T, 'and it drifts toward him');
+});
+
+test('a ghost hurts on touch, cannot be stomped, fireballs do nothing, and a star beats it', () => {
+  const st = stageGame('유령의 집'); setBig(st); st.m.x = 10 * T; st.m.y = GROUND * T - st.m.h; st.m.face = 1;
+  const b = mk(st, 'boo', 10 * T, GROUND * T - 28); b.shy = true; st.camX = 4 * T; L.step(st, 0.01, {}); assert.strictEqual(st.m.size, 'small', 'it hurts');
+  const s2 = stageGame('유령의 집'); const b2 = mk(s2, 'boo', 10 * T, 8 * T); s2.m.x = 10 * T; s2.m.y = 8 * T - 24; s2.m.vy = 160; s2.m.onGround = false; s2.m.face = 1; go(s2, 0.1);
+  assert.notStrictEqual(b2.state, 'dead', 'no stomp');
+  const s3 = stageGame('유령의 집'); setBig(s3); L.setSize(s3, 'fire'); const b3 = mk(s3, 'boo', 14 * T, GROUND * T - 20); b3.shy = true; s3.m.x = 10 * T; s3.camX = 6 * T; s3.m.face = 1; go(s3, 0.1, { fire: true }); go(s3, 0.6, {});
+  assert.notStrictEqual(b3.state, 'dead', 'fire does nothing');
+  const s4 = stageGame('유령의 집'); s4.m.star = 5; const b4 = mk(s4, 'boo', 10 * T, GROUND * T - 14); s4.m.x = 10 * T; s4.camX = 4 * T; L.step(s4, 0.01, {}); assert.strictEqual(b4.state, 'dead', 'star beats it');
+});
+
+// 아무것도 못 다치게 한 채 앞으로 달리기만 하는 단순한 봇이 모든 코스의 마지막 계단 앞까지 갈 수 있는지(땅·구멍·계단·선인장 높이가 넘을 수 있는지)
+test('a simple runner can cross every course up to the last staircase when nothing can hurt it', () => {
+  for (const stage of ['설원', '사막', '버섯 숲', '물속', '유령의 집'].map(N)) {
+    const st = L.newGame(L.rng(7), stage); st.enemies = []; st.plants = []; st.cannons = []; st.bars = []; st.hazards = []; st.boss = null; st.level = { ...st.level, cheeps: null };
+    st.timeLeft = 9999; let t = 0;
+    for (let i = 0; i < 60 * 150 && st.phase === 'play' && !(st.m.onGround && st.m.x > (st.level.flag - 11) * T); i++) {
+      st.m.invuln = 99; const m = st.m, water = !!st.level.water;
+      const aheadWall = L.solid(st, Math.floor((m.x + m.w + 6) / T), Math.floor((m.y + m.h - 2) / T));
+      const gx = Math.floor((m.x + m.w + 14) / T);
+      let groundAhead = false; for (let y = 0; y < L.ROWS; y++) if (y >= GROUND - 1 && L.solid(st, gx, y)) groundAhead = true;
+      const onT = m.onGround;
+      const atTop = onT && Math.abs(m.y + m.h - (GROUND - 8) * T) < 2;
+      const tileHere = L.tileAt(st, Math.floor((m.x + m.w + 6) / T), Math.floor((m.y + m.h - 2) / T));
+      const needJump = onT && (aheadWall || !groundAhead || atTop || tileHere === 'K' || L.tileAt(st, Math.floor((m.x + m.w + 8) / T), GROUND - 1) === 'K');
+      const swim = water && (m.y + m.h > (GROUND - 4) * T) && st.tick !== 1;
+      L.step(st, 1 / 60, { right: true, run: true, jump: water ? (swim && i % 6 === 0) : needJump, jumpHeld: true });
+      t = i;
+    }
+    assert.ok(st.m.x > (st.level.flag - 11) * T, 'stage ' + stage + ' reached the last staircase (phase ' + st.phase + ', x ' + Math.round(st.m.x) + ', y ' + Math.round(st.m.y) + ')');
+  }
 });

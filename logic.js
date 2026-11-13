@@ -6,11 +6,14 @@ const LOGIC_SM = (() => {
   const LV = (typeof module !== 'undefined' && module.exports) ? require('./levels.js') : LEVELS_SM;
   const { T, ROWS, GROUND, STAGES, ROOM } = LV;
   const VW = 240, VH = ROWS * T;                      // 화면에 보이는 크기 240 x 208
-  const SOLID = new Set(['#', 'B', '?', 'M', '*', '1', '$', 'U', 'S', 'P', 'p', 'N', 'Y', 'g']);   // H(숨은 블록)·A(도끼)는 지나갈 수 있다
+  const SOLID = new Set(['#', 'B', '?', 'M', '*', '1', '$', 'U', 'S', 'P', 'p', 'N', 'Y', 'g', 'T']);   // H(숨은 블록)·A(도끼)·K(선인장)는 지나갈 수 있다
   // --- 달리기·점프 (원작: 걷기 1.56px/f, 달리기 2.56px/f, 가속 0.037/0.056, 브레이크 0.05, 미끄러짐 0.10) ---
   const WALK = 93.75, RUN = 153.75, ACC_WALK = 133, ACC_RUN = 200, DECEL = 183, SKID = 366;
   const JUMP_SLOW = 240, JUMP_FAST = 300, G_HOLD_SLOW = 400, G_HOLD_FAST = 510, G_FALL = 1575, MAXFALL = 240;   // 점프 버튼을 누르고 있으면 올라가는 동안 중력이 약하다
   const SIZE = { small: { w: 12, h: 14 }, big: { w: 12, h: 28 }, fire: { w: 12, h: 28 } };
+  // --- 새 코스의 물리: 얼음 바닥(가속·브레이크가 느리다), 물속(점프 대신 헤엄) ---
+  const ICE_FR = 0.3, ICE_STOP = 0.1;
+  const SWIM_V = 78, SWIM_ACC = 170, SWIM_G = 330, SWIM_FALL = 70, SWIM_STROKE = 125;
   const START_LIVES = 3, DYING = 2, INVULN = 2, STAR_TIME = 10;
   const CROUCH_H = 16, WARP_TIME = 0.7;                 // 앉은 키 · 파이프로 들어가고 나오는 데 걸리는 시간
   const TIME_RATE = 2.5, HURRY_AT = 100, COUNT_RATE = 100;   // 제한 시간은 '게임 단위': 실제 0.4초에 1 줄어든다 (원작처럼). 남은 시간은 1 당 50점
@@ -28,8 +31,12 @@ const LOGIC_SM = (() => {
     lakitu: { w: 16, h: 20, speed: 0, fly: true, killOnStomp: true },         // 구름 탄 적: 날아다니며 가시 알을 떨군다 (밟으면 쓰러진다)
     spiny: { w: 12, h: 12, speed: 40, nostomp: true },                        // 가시 거북: 밟으면 다친다. 불꽃·별·등껍질에는 쓰러진다
     cheep: { w: 12, h: 12, speed: 0, fly: true, killOnStomp: true },          // 날아오르는 물고기
+    swimcheep: { w: 12, h: 12, speed: 26, fly: true, killOnStomp: true },     // 헤엄치는 물고기: 제자리 근처를 오간다
+    urchin: { w: 12, h: 12, speed: 0, fly: true, fireproof: true, immortal: true, nostomp: true },   // 성게: 떠 있고 닿으면 다친다
+    boo: { w: 12, h: 12, speed: 0, fly: true, fireproof: true, nostomp: true },   // 수줍은 유령: 바라보면 멈추고 등을 돌리면 다가온다. 별로만 쓰러진다
   };
   const HAMMER = { every: 1.5, jump: 1.8, range: 22, points: 1000 }, LAKITU_POINTS = 1200, LAKITU_EGG_EVERY = 3.2, LAKITU_Y = 118;     // 걷는 점프로도 위에서 밟을 수 있는 낮은 높이 (서 있는 큰 마리오 머리 위로 7픽셀 비어 있다)
+  const BOO = { speed: 30, accel: 120, hide: 0.25 };
   const BOSS = { w: 24, h: 28, hp: 5, speed: 28, points: 5000 };
   const CANNON_EVERY = 3.2, BAR_STEP = 7, SPRING_HOLD = 430, SPRING_TAP = 290;
   const FIREWORK_DIGITS = { 1: 1, 3: 3, 6: 6 }, FIREWORK_PTS = 500, FIREWORK_GAP = 0.55;
@@ -64,7 +71,7 @@ const LOGIC_SM = (() => {
     st.timeLeft = st.tutorial ? 9999 : lv.time;
     st.hurried = false;
     st.camX = 0;
-    st.enemies = lv.spawns.map((s, i) => makeEnemy(s.type, s.x * T + 2, s.type === 'podoboo' ? VH + 10 : s.type === 'lakitu' ? LAKITU_Y : GROUND * T - ENEMY[s.type].h, i));
+    st.enemies = lv.spawns.map((s, i) => makeEnemy(s.type, s.x * T + 2, s.y !== undefined ? s.y * T : s.type === 'podoboo' ? VH + 10 : s.type === 'lakitu' ? LAKITU_Y : GROUND * T - ENEMY[s.type].h, i));
     for (const [i, s] of lv.spawns.entries()) if (s.from !== undefined) { st.enemies[i].from = s.from * T; st.enemies[i].to = s.to * T; }
     st.cannons = lv.cannons.map((c, i) => ({ x: c.x, y: c.y, t: 1.5 + i * 0.8 }));
     st.bars = lv.bars.map((b) => ({ ...b }));
@@ -196,10 +203,11 @@ const LOGIC_SM = (() => {
     }
     const dir = m.crouch && m.onGround ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
     m.running = !!input.run;
-    const maxV = m.running ? RUN : WALK, acc = m.running ? ACC_RUN : ACC_WALK;
+    const water = !!st.level.water && !st.inRoom, fr = (!!st.level.ice && !st.inRoom && m.onGround) ? ICE_FR : 1;      // 물속이면 헤엄, 얼음 위면 미끄러짐
+    const maxV = water ? SWIM_V : (m.running ? RUN : WALK), acc = (water ? SWIM_ACC : (m.running ? ACC_RUN : ACC_WALK)) * fr;
     m.skid = false;
     if (dir) {
-      if (m.vx * dir < 0 && m.onGround) { m.skid = true; m.vx += dir * SKID * h; if (m.vx * dir > 0) m.vx = 0; }      // 반대쪽으로 달리다 방향을 바꾸면 미끄러진다
+      if (m.vx * dir < 0 && m.onGround) { m.skid = true; m.vx += dir * SKID * h * fr; if (m.vx * dir > 0) m.vx = 0; }      // 반대쪽으로 달리다 방향을 바꾸면 미끄러진다
       else if (m.vx * dir < 0) { m.vx += dir * acc * h; m.face = dir; }                  // 공중에서 반대쪽으로 조종하면 속도가 줄어든다
       else {
         m.face = dir;
@@ -207,21 +215,23 @@ const LOGIC_SM = (() => {
         else m.vx = Math.sign(m.vx) * Math.max(maxV, Math.abs(m.vx) - DECEL * h);          // 달리기를 놓으면 걷기 속도까지 줄어든다
       }
       if (!m.moved) { m.moved = true; emit(st, { t: 'move' }); }
-    } else if (m.onGround) {
-      const f = DECEL * h;
+    } else if (m.onGround || water) {
+      const f = DECEL * h * (fr < 1 ? ICE_STOP : (water && !m.onGround ? 0.35 : 1));
       m.vx = Math.abs(m.vx) <= f ? 0 : m.vx - Math.sign(m.vx) * f;
     }
     // 점프: 빨리 달릴수록 더 높이 뜬다
     m.coyote = m.onGround ? 0.08 : Math.max(0, m.coyote - h);
     m.jumpHeld = !!input.jumpHeld || !!input.jump;
-    if (input.jump && (m.onGround || m.coyote > 0)) {
+    if (water) {
+      if (input.jump) { m.vy = -SWIM_STROKE; m.onGround = false; m.coyote = 0; emit(st, { t: 'jump', big: m.size !== 'small' }); }      // 물속: 누를 때마다 한 번 헤엄친다
+    } else if (input.jump && (m.onGround || m.coyote > 0)) {
       const k = clamp((Math.abs(m.vx) - 90) / 60, 0, 1);
       m.vy = -(JUMP_SLOW + (JUMP_FAST - JUMP_SLOW) * k); m.jumpG = G_HOLD_SLOW + (G_HOLD_FAST - G_HOLD_SLOW) * k;
       m.onGround = false; m.coyote = 0;
       emit(st, { t: 'jump', big: m.size !== 'small' });
     }
     const g = m.vy < 0 ? (m.jumpHeld ? (m.jumpG || G_HOLD_SLOW) : G_FALL) : G_FALL;
-    m.vy = Math.min(MAXFALL, m.vy + g * h);
+    m.vy = water ? Math.min(SWIM_FALL, m.vy + SWIM_G * h) : Math.min(MAXFALL, m.vy + g * h);
     if (m.fireCool > 0) m.fireCool -= h;
     if (input.fire && m.size === 'fire' && !m.crouch && m.fireCool <= 0 && st.fireballs.length < 2) {
       st.fireballs.push({ id: ++st.seq, x: m.x + (m.face > 0 ? m.w : -6), y: m.y + 10, w: 6, h: 6, vx: m.face * 190, vy: 40, life: 3 });
@@ -272,6 +282,28 @@ const LOGIC_SM = (() => {
     if (e.type === 'cheep') {                                                // 포물선으로 날아올랐다 떨어진다
       e.vy += 520 * h; e.x += e.vx * h; e.y += e.vy * h;
       if (e.vy > 0 && e.y > VH + 24) e.state = 'gone';
+      return;
+    }
+    if (e.type === 'swimcheep') {                                            // 제자리 근처(±48픽셀)를 오가며 위아래로 흔들린다
+      if (e.home === undefined) { e.home = e.x; e.y0 = e.y; e.vx = (e.id % 2 ? -1 : 1) * d.speed; }
+      e.x += e.vx * h;
+      if (e.x > e.home + 48) e.vx = -d.speed; else if (e.x < e.home - 48) e.vx = d.speed;
+      if (solid(st, Math.floor((e.vx > 0 ? e.x + e.w + 1 : e.x - 1) / T), Math.floor((e.y + e.h / 2) / T))) e.vx = -e.vx;
+      e.y = e.y0 + Math.sin(st.time * 1.6 + e.id) * 8;
+      return;
+    }
+    if (e.type === 'urchin') { if (e.y0 === undefined) e.y0 = e.y; e.y = e.y0 + Math.sin(st.time * 1.2 + e.id) * 3; return; }
+    if (e.type === 'boo') {                                                  // 마리오가 바라보고 있으면 얼굴을 가리고 멈추고, 등을 돌리면 다가온다
+      const m = st.m, mc = m.x + m.w / 2, ec = e.x + e.w / 2;
+      e.shy = (m.face > 0 && ec > mc) || (m.face < 0 && ec < mc);
+      if (e.y0 === undefined) e.y0 = e.y;
+      if (e.shy) { e.vx *= 0.8; e.vy = 0; if (Math.abs(e.vx) < 1) e.vx = 0; }
+      else {
+        const dx = mc - ec, dy = m.y + m.h / 2 - (e.y + e.h / 2), dist = Math.hypot(dx, dy) || 1;
+        e.vx += (dx / dist) * BOO.accel * h; e.vy = (dy / dist) * BOO.speed * 0.6;
+        const sp = Math.abs(e.vx); if (sp > BOO.speed) e.vx = (e.vx / sp) * BOO.speed;
+      }
+      e.x += e.vx * h; e.y += e.vy * h;
       return;
     }
     if (e.type === 'lakitu') {                                               // 마리오 앞쪽을 따라가며 가끔 가시 알을 떨군다. 정해진 구간 밖으로는 안 간다
@@ -540,6 +572,7 @@ const LOGIC_SM = (() => {
     for (let ty = Math.max(0, t); ty <= Math.min(ROWS - 1, b); ty++) for (let tx = l; tx <= r; tx++) {
       const ch = tileAt(st, tx, ty);
       if (ch === 'C') { st.tiles[ty][tx] = '.'; addCoin(st, false); }
+      else if (ch === 'K') hurt(st);                                                  // 선인장: 닿으면 다친다 (별 마리오는 무사)
       else if ((ch === 'F' || ch === 'f') && st.phase === 'play') return reachFlag(st);
       else if (ch === 'A' && st.phase === 'play') return reachAxe(st);
     }
@@ -701,7 +734,7 @@ const LOGIC_SM = (() => {
 
   return {
     T, ROWS, GROUND, VW, VH, STAGES, SOLID, WALK, RUN, ACC_WALK, ACC_RUN, DECEL, SKID, JUMP_SLOW, JUMP_FAST, G_HOLD_SLOW, G_HOLD_FAST, G_FALL, MAXFALL, SIZE, START_LIVES, DYING, INVULN, STAR_TIME,
-    TIME_RATE, HURRY_AT, COUNT_RATE, POINTS, STOMP_CHAIN, SHELL_CHAIN, ENEMY, SHELL_SPEED, SHELL_REVIVE, COIN_BLOCK_MAX, COIN_BLOCK_TIME, PLANT, FLAG, EXTRA_LIFE_COINS, EXTRA_LIFE_AT,
+    ICE_FR, ICE_STOP, SWIM_V, SWIM_G, SWIM_FALL, SWIM_STROKE, BOO, TIME_RATE, HURRY_AT, COUNT_RATE, POINTS, STOMP_CHAIN, SHELL_CHAIN, ENEMY, SHELL_SPEED, SHELL_REVIVE, COIN_BLOCK_MAX, COIN_BLOCK_TIME, PLANT, FLAG, EXTRA_LIFE_COINS, EXTRA_LIFE_AT,
     CROUCH_H, WARP_TIME, ROOM, BOSS, HAMMER, LAKITU_POINTS, CANNON_EVERY, SPRING_HOLD, SPRING_TAP, FIREWORK_PTS, barSegments,
     rng, newGame, startStage, step, tileAt, solid, hitBlock, hurt, die, setSize, addScore, makeEnemy, overlap, setCrouch, canStand, warpAt,
   };
