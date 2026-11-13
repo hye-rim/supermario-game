@@ -99,7 +99,7 @@ let clock = 0, lastTick = 0;
 let jumpReq = 0;
 
 /* @test-hooks:start */
-window.__sm = { get pad() { return pad; }, get stick() { return stick; }, get padMode() { return padMode; }, togglePadMode, get G() { return G; }, get state() { return state; }, L, setG(g) { G = g; }, step: (dt) => update(dt), start: (n) => startGame(n) };
+window.__sm = { get speed() { return SPEEDS[speedIdx].k; }, cycleSpeed, get pad() { return pad; }, get stick() { return stick; }, get padMode() { return padMode; }, togglePadMode, get G() { return G; }, get state() { return state; }, L, setG(g) { G = g; }, step: (dt) => update(dt), start: (n) => startGame(n) };
 /* @test-hooks:end */
 
 // ---------- 입력 ----------
@@ -180,7 +180,13 @@ function applyPadMode() {
 function togglePadMode() { padMode = padMode === 'stick' ? 'buttons' : 'stick'; store.set('smPad', padMode); applyPadMode(); }
 // 자동 달리기: 켜면 달리기 버튼을 누르지 않아도 계속 달린다 (그 버튼은 불꽃 전용). 한 손가락으로 점프만 누르면 돼서 폰에서 훨씬 편하다
 let autoRun = store.get('smAuto') === '1';
+// 게임 속도(`smSpeed`): 보통 100% · 조금 느리게 85% · 느리게 70%. 기본은 조금 느리게
+const SPEEDS = [{ k: 1, name: '보통' }, { k: 0.85, name: '조금 느리게' }, { k: 0.7, name: '느리게' }];
+let speedIdx = Math.max(0, Math.min(SPEEDS.length - 1, store.get('smSpeed') === null ? 1 : Number(store.get('smSpeed')) || 0));
+function applySpeed() { for (const b of document.querySelectorAll('[data-act=speed]')) b.textContent = `⏩ 게임 속도: ${SPEEDS[speedIdx].name}`; }
+function cycleSpeed() { speedIdx = (speedIdx + 1) % SPEEDS.length; store.set('smSpeed', String(speedIdx)); applySpeed(); }
 function applyAuto() {
+  applySpeed();
   applyPadMode();
   $('runBt').innerHTML = autoRun ? '불꽃' : '달리기<br>불꽃';
   for (const b of document.querySelectorAll('[data-act=auto]')) { b.classList.toggle('on', autoRun); b.textContent = `🏃 자동 달리기: ${autoRun ? '켜짐' : '꺼짐'}`; }
@@ -207,7 +213,7 @@ function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${
 function pause() {
   if (state !== 'play') return;
   state = 'paused';
-  showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button><button class="opt" data-act="padmode"></button><button class="opt" data-act="auto"></button>');
+  showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button><button class="opt" data-act="padmode"></button><button class="opt" data-act="speed"></button><button class="opt" data-act="auto"></button>');
 }
 function resume() { if (state === 'paused') { state = 'play'; hideOverlay(); } }
 function showOverlay(html) { $('overlay').innerHTML = html; $('overlay').classList.remove('hidden'); applyAuto(); }
@@ -241,6 +247,7 @@ $('overlay').addEventListener('click', (e) => {
   else if (b.dataset.act === 'resume') resume();
   else if (b.dataset.act === 'auto') toggleAuto();
   else if (b.dataset.act === 'padmode') togglePadMode();
+  else if (b.dataset.act === 'speed') cycleSpeed();
   else if (b.dataset.act === 'title') location.reload();
 });
 
@@ -254,7 +261,7 @@ function update(dt) {
   bumps = bumps.filter((b) => b.t < 0.2);
   if (state !== 'play' || !G) return;
   const inp = readInput();
-  L.step(G, dt, inp);
+  L.step(G, dt * SPEEDS[speedIdx].k, inp);                                    // 게임 속도: 모든 움직임(걷기·점프·적·시간)이 같은 비율로 느려져서 코스의 거리 감각은 그대로
   if (jumpReq > 0) jumpReq = Math.max(0, jumpReq - dt);
   if (fireReq > 0) fireReq = Math.max(0, fireReq - dt);
   for (const e of G.events) handle(e);
