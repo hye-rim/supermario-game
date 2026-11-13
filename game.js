@@ -104,7 +104,7 @@ window.__sm = { get pad() { return pad; }, get stick() { return stick; }, get pa
 
 // ---------- 입력 ----------
 const keys = new Set();
-const pad = { left: false, right: false, down: false, run: false, jump: false };
+const pad = { left: false, right: false, down: false, run: false, jump: false, stickJump: false };
 const K = { left: ['ArrowLeft', 'a', 'A'], right: ['ArrowRight', 'd', 'D'], down: ['ArrowDown', 's', 'S'] };
 const JUMP = [' ', 'z', 'Z', 'ArrowUp', 'w', 'W'], RUN = ['x', 'X', 'Shift'];
 const heldAny = (list) => list.some((k) => keys.has(k));
@@ -120,7 +120,7 @@ addEventListener('keydown', (e) => {
   keys.add(e.key);
 });
 addEventListener('keyup', (e) => { keys.delete(e.key); });
-addEventListener('blur', () => { keys.clear(); padPtr = null; pad.left = pad.right = pad.down = pad.run = pad.jump = false; for (const b of document.querySelectorAll('#controls button')) b.classList.remove('on'); });
+addEventListener('blur', () => { keys.clear(); padPtr = null; pad.left = pad.right = pad.down = pad.run = pad.jump = pad.stickJump = false; for (const b of document.querySelectorAll('#controls button')) b.classList.remove('on'); });
 
 function bindHold(el, on, off) {
   el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('on'); on(); });
@@ -133,7 +133,7 @@ function bindHold(el, on, off) {
 const padEl = $('pad');
 let padMode = store.get('smPad') === 'buttons' ? 'buttons' : 'stick';
 let padPtr = null;
-const STICK = { dead: 9, reach: 24, down: 16 };            // 중심에서 이만큼 넘으면 걷는다 / 중심을 따라 옮기는 거리 / 아래로 이만큼 밀면 앉는다
+const STICK = { dead: 9, reach: 24, down: 16, up: 16 };    // 중심에서 이만큼 넘으면 걷는다 / 중심을 따라 옮기는 거리 / 아래로 이만큼 밀면 앉는다 / 위로 이만큼 밀면 점프
 const stick = { ax: 0, ay: 0, x: 0, y: 0, on: false };
 const padZone = (x) => {
   const l = $('leftBt').getBoundingClientRect(), d = $('downBt').getBoundingClientRect(), r = $('rightBt').getBoundingClientRect();
@@ -158,6 +158,9 @@ function stickMove(e) {
   const dy = stick.y - stick.ay;
   const down = dy > STICK.down && dy > Math.abs(dx) * 0.8;
   pad.down = down; pad.left = !down && dx < -STICK.dead; pad.right = !down && dx > STICK.dead;
+  const up = dy < -STICK.up;                                                  // 위로 밀면 점프 (밀고 있는 동안 점프 버튼을 누른 것과 같다: 오래 밀수록 높이). 옆으로 같이 밀 수 있다
+  if (up && !pad.stickJump) jumpReq = 0.12;
+  pad.stickJump = up;
   stickDraw();
 }
 padEl.addEventListener('pointerdown', (e) => {
@@ -167,12 +170,12 @@ padEl.addEventListener('pointerdown', (e) => {
   stick.on = true; stick.ax = Math.max(28, Math.min(r.width - 28, e.clientX - r.left)); stick.ay = Math.max(28, Math.min(r.height - 28, e.clientY - r.top)); stickMove(e);
 });
 padEl.addEventListener('pointermove', (e) => { if (e.pointerId !== padPtr) return; if (padMode === 'buttons') setPad(padZone(e.clientX)); else stickMove(e); });
-const padUp = (e) => { if (e.pointerId === padPtr) { padPtr = null; setPad(null); stick.on = false; stickDraw(); } };
+const padUp = (e) => { if (e.pointerId === padPtr) { padPtr = null; setPad(null); pad.stickJump = false; stick.on = false; stickDraw(); } };
 padEl.addEventListener('pointerup', padUp); padEl.addEventListener('pointercancel', padUp); padEl.addEventListener('lostpointercapture', padUp);
 function applyPadMode() {
   document.body.classList.toggle('stickmode', padMode === 'stick');
   for (const b of document.querySelectorAll('[data-act=padmode]')) { b.classList.toggle('on', padMode === 'stick'); b.textContent = `🕹 방향 조작: ${padMode === 'stick' ? '조이스틱' : '방향 버튼'}`; }
-  setPad(null); stick.on = false; stickDraw(); padPtr = null; if (typeof fit === 'function') fit();
+  setPad(null); pad.stickJump = false; stick.on = false; stickDraw(); padPtr = null; if (typeof fit === 'function') fit();
 }
 function togglePadMode() { padMode = padMode === 'stick' ? 'buttons' : 'stick'; store.set('smPad', padMode); applyPadMode(); }
 // 자동 달리기: 켜면 달리기 버튼을 누르지 않아도 계속 달린다 (그 버튼은 불꽃 전용). 한 손가락으로 점프만 누르면 돼서 폰에서 훨씬 편하다
@@ -187,7 +190,7 @@ bindHold($('runBt'), () => { pad.run = true; fireReq = 0.12; }, () => { pad.run 
 bindHold($('jumpBt'), () => { pad.jump = true; jumpReq = 0.12; }, () => { pad.jump = false; });
 const readInput = () => ({
   left: heldAny(K.left) || pad.left, right: heldAny(K.right) || pad.right, down: heldAny(K.down) || pad.down,
-  run: heldAny(RUN) || pad.run || autoRun, jump: jumpReq > 0, jumpHeld: heldAny(JUMP) || pad.jump, fire: fireReq > 0,
+  run: heldAny(RUN) || pad.run || autoRun, jump: jumpReq > 0, jumpHeld: heldAny(JUMP) || pad.jump || pad.stickJump, fire: fireReq > 0,
 });
 
 // ---------- 흐름 ----------
