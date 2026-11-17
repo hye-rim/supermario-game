@@ -85,6 +85,8 @@ const sfx = {
   hammer: () => tone(340, 0.09, 'square', 0.03, -120),
   egg: () => tone(520, 0.1, 'triangle', 0.03, -200),
   cheep: () => tone(600, 0.14, 'sine', 0.04, 400),
+  boom: () => { tone(110, 0.4, 'sawtooth', 0.08, -70); tone(60, 0.35, 'square', 0.06, -20); },
+  vine: () => melody([392, 523, 659, 784, 988], 55, 'triangle', 0.04),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
@@ -95,7 +97,7 @@ let best = Number(store.get('smBest')) || 0;
 let unlocked = Math.max(1, Math.min(L.STAGES.length, Number(store.get('smStage')) || 1));
 let fxs = [], bumps = [];
 let banner = { text: '', sub: '', t: 0, color: '#fff' };
-let clock = 0, lastTick = 0;
+let clock = 0, lastTick = 0, shakeT = 0;
 let jumpReq = 0;
 
 /* @test-hooks:start */
@@ -286,6 +288,11 @@ function handle(e) {
   else if (e.t === 'crouch') { sfx.crouch(); tutorialSignal('crouch'); }
   else if (e.t === 'warp') { sfx.pipe(); if (e.kind === 'in') tutorialSignal('warp'); }
   else if (e.t === 'room') showBanner('보너스 방!', '동전을 모아 오른쪽 파이프로 나가요', 2.2, '#ffd23a');
+  else if (e.t === 'boom') { sfx.boom(); shakeT = 0.3; fxs.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 0.5 }); tutorialSignal('boom'); }
+  else if (e.t === 'vine') { sfx.vine(); tutorialSignal('vine'); }
+  else if (e.t === 'climb') tutorialSignal('climb');
+  else if (e.t === 'sky') { sfx.powerup(); showBanner('코인 천국!', '동전을 모으고 구름 끝에서 뛰어내려요', 2.6, '#ffd23a'); tutorialSignal('sky'); }
+  else if (e.t === 'skyOut') sfx.pipe();
   else if (e.t === 'cannon') sfx.cannon();
   else if (e.t === 'hammer') sfx.hammer();
   else if (e.t === 'egg') sfx.egg();
@@ -387,7 +394,7 @@ function drawTile(ch, x, y, th, tx, ty) {
   } else if (ch === 'B') {
     RC(x, y, T, T, th.brick); RC(x, y, T, 1, 'rgba(255,255,255,.35)');
     RC(x, y + 5, T, 1, '#000'); RC(x, y + 10, T, 1, '#000'); RC(x + 7, y, 1, 5, '#000'); RC(x + 3, y + 5, 1, 5, '#000'); RC(x + 11, y + 5, 1, 5, '#000'); RC(x + 7, y + 10, 1, 6, '#000');
-  } else if (ch === '?' || ch === 'M' || ch === '*' || ch === '1' || ch === '$') {
+  } else if (ch === '?' || ch === 'M' || ch === '*' || ch === '1' || ch === '$' || ch === 'V') {
     const pulse = Math.floor(clock * 4) % 4 === 0;
     RC(x, y, T, T, pulse ? '#fcd84c' : '#f0a020'); RC(x, y, T, 1, '#fff2a0'); RC(x, y + 15, T, 1, '#8a4a00'); RC(x, y, 1, T, '#fff2a0'); RC(x + 15, y, 1, T, '#8a4a00');
     ctx.fillStyle = '#7a3a00'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x + 8, y + 9);
@@ -431,6 +438,9 @@ function drawTile(ch, x, y, th, tx, ty) {
     const first = tx === a, last = tx === b;
     ctx.fillStyle = '#e83a3a'; ctx.beginPath(); ctx.moveTo(x + (first ? 2 : 0), y + T); ctx.lineTo(x + (first ? 2 : 0), y + 9); ctx.quadraticCurveTo(x + (first ? 2 : 0), y + 1, x + (first ? 8 : 0), y + 1); ctx.lineTo(x + T - (last ? 8 : 0), y + 1); ctx.quadraticCurveTo(x + T - (last ? 2 : 0), y + 1, x + T - (last ? 2 : 0), y + 9); ctx.lineTo(x + T - (last ? 2 : 0), y + T); ctx.fill();
     RC(x + 3, y + 4, 4, 3, '#fff'); RC(x + 10, y + 7, 3, 3, '#fff'); RC(x, y + 14, T, 2, '#b82020');
+  } else if (ch === 'v') {                                                              // 덩굴: 구불구불한 줄기와 잎
+    const sw = Math.sin(clock * 2 + ty) * 1.2; ctx.strokeStyle = '#2cb02c'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + 8 + sw, y + T); ctx.quadraticCurveTo(x + 8 - sw * 2, y + 8, x + 8 + sw, y); ctx.stroke();
+    ctx.fillStyle = '#58d858'; ctx.beginPath(); ctx.ellipse(x + (ty % 2 ? 12 : 4) + sw, y + 8, 4, 2, ty % 2 ? 0.5 : -0.5, 0, Math.PI * 2); ctx.fill();
   } else if (ch === 'F') { RC(x + 7, y, 2, T, '#e8e8e8'); RC(x + 7, y, 1, T, '#fff'); }
   else if (ch === 'f') { RC(x + 7, y + 6, 2, 10, '#e8e8e8'); ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(x + 8, y + 5, 4, 0, Math.PI * 2); ctx.fill(); }
 }
@@ -464,16 +474,44 @@ function drawGoomba(e, x, y) {
   RC(x + (step ? 0 : 1), y + 10, 4, 2, '#3a2010'); RC(x + (step ? 8 : 7), y + 10, 4, 2, '#3a2010');
 }
 function drawKoopa(e, x, y) {
-  const dir = e.vx >= 0 ? 1 : -1;
+  const dir = e.vx >= 0 ? 1 : -1, red = e.type === 'redkoopa' || e.type === 'redpara', C1 = red ? '#e83030' : '#2cb02c', C2 = red ? '#ff7a7a' : '#58d858';
   if (e.state === 'shell' || e.state === 'shellMove') {
-    ctx.fillStyle = '#2cb02c'; ctx.beginPath(); ctx.ellipse(x + 6, y + 8, 6.5, 7, 0, Math.PI, 0); ctx.fill(); RC(x, y + 8, 12, 4, '#f0e8a0'); RC(x + 3, y + 3, 6, 3, '#58d858');
+    ctx.fillStyle = C1; ctx.beginPath(); ctx.ellipse(x + 6, y + 8, 6.5, 7, 0, Math.PI, 0); ctx.fill(); RC(x, y + 8, 12, 4, '#f0e8a0'); RC(x + 3, y + 3, 6, 3, C2);
     if (e.state === 'shellMove') RC(x + 2 + Math.floor(clock * 20) % 3, y + 9, 3, 2, '#c8c070');
     return;
   }
   const step = Math.floor(clock * 6 + e.id) % 2;
-  RC(x + 2, y + 6, 8, 8, '#2cb02c'); RC(x + 3, y + 5, 6, 3, '#58d858'); RC(x + 2, y + 10, 8, 3, '#f0e8a0');
+  RC(x + 2, y + 6, 8, 8, C1); RC(x + 3, y + 5, 6, 3, C2); RC(x + 2, y + 10, 8, 3, '#f0e8a0');
   RC(x + (dir > 0 ? 7 : 1), y, 4, 6, '#f0d870'); RC(x + (dir > 0 ? 9 : 2), y + 1, 1, 2, '#000');
   RC(x + (step ? 2 : 4), y + 13, 3, 3, '#f0a020'); RC(x + (step ? 7 : 5), y + 13, 3, 3, '#f0a020');
+}
+function drawWings(e, x, y, dir) {                                                      // 날개: 등 뒤에서 퍼덕인다
+  const f = Math.sin(clock * 14 + e.id) * 3, bx = x + (dir > 0 ? 1 : 9);
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(bx, y + 7); ctx.quadraticCurveTo(bx + (dir > 0 ? -7 : 7), y + 1 + f, bx + (dir > 0 ? -2 : 2), y - 3 + f); ctx.quadraticCurveTo(bx + (dir > 0 ? 1 : -1), y + 2, bx, y + 7); ctx.fill();
+  ctx.strokeStyle = '#a8c8f0'; ctx.lineWidth = 0.8; ctx.stroke();
+}
+function drawParatroopa(e, x, y) { const dir = e.vx >= 0 ? 1 : -1; drawKoopa(e, x, y); drawWings(e, x, y, dir); }
+function drawBobomb(e, x, y) {                                                          // 폭탄병: 검은 몸에 태엽, 불이 붙으면 빨갛게 깜빡이고 부들부들 떤다
+  const lit = e.state === 'lit', fl = lit && Math.floor(clock * (e.timer > 1.5 ? 16 : 8)) % 2, sh = lit ? Math.sin(clock * 50) * 0.8 : 0, step = Math.floor(clock * 6 + e.id) % 2;
+  x += sh;
+  ctx.fillStyle = fl ? '#d84030' : '#20202c'; ctx.beginPath(); ctx.ellipse(x + 6, y + 7, 6.5, 6.5, 0, 0, Math.PI * 2); ctx.fill(); RC(x + 3, y + 1, 6, 2, '#6a6a7a');
+  RC(x + 2, y + 5, 3, 3, '#fff'); RC(x + 7, y + 5, 3, 3, '#fff'); RC(x + 3, y + 6, 1, 2, '#000'); RC(x + 8, y + 6, 1, 2, '#000');
+  RC(x + (step ? 1 : 3), y + 12, 3, 2, '#f0a020'); RC(x + (step ? 8 : 6), y + 12, 3, 2, '#f0a020');
+  RC(x + 11, y + 4, 2, 2, '#e8d070'); RC(x + 12, y + 3, 1, 2, '#e8d070');                                                // 태엽
+  ctx.strokeStyle = '#c89a50'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + 6, y + 1); ctx.lineTo(x + 8, y - 2); ctx.stroke();                              // 심지
+  if (lit) { ctx.fillStyle = Math.floor(clock * 30) % 2 ? '#ffe050' : '#ff7030'; ctx.beginPath(); ctx.arc(x + 8, y - 3, 2 + Math.floor(clock * 20) % 2, 0, Math.PI * 2); ctx.fill(); }
+}
+function drawBlooper(e, x, y) {                                                         // 오징어: 움찔할 때 몸이 길어지고 다리가 모인다
+  const sq = e.squirt, w = sq ? 7 : 9;
+  ctx.fillStyle = '#f4f4ff'; ctx.beginPath(); ctx.ellipse(x + 6, y + (sq ? 5 : 6), w / 2 + 1, sq ? 7 : 6, 0, Math.PI, 0); ctx.fill(); RC(x + 6 - w / 2 - 1, y + (sq ? 5 : 6), w + 2, 4, '#f4f4ff');
+  RC(x + 3, y + 4, 2, 3, '#000'); RC(x + 7, y + 4, 2, 3, '#000'); RC(x + 3, y + 4, 1, 1, '#fff'); RC(x + 7, y + 4, 1, 1, '#fff');
+  for (let k = 0; k < 4; k++) { const sw = Math.sin(clock * 8 + k + e.id) * (sq ? 0.4 : 1.4); RC(x + 2 + k * 2.4 + (sq ? (k - 1.5) * -0.8 : 0), y + 10 + (sq ? 0 : Math.abs(sw)), 1.5, sq ? 6 : 4, '#e0e0f0'); }
+}
+function drawSpikeBall(e, x, y) {                                                       // 굴러다니는 가시 공
+  ctx.save(); ctx.translate(x + 6, y + 6); ctx.rotate(clock * 5 * (e.vx >= 0 ? 1 : -1));
+  ctx.fillStyle = '#b4b4cc'; ctx.strokeStyle = '#20202c'; ctx.lineWidth = 1; for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; ctx.beginPath(); ctx.moveTo(Math.cos(a - 0.22) * 4, Math.sin(a - 0.22) * 4); ctx.lineTo(Math.cos(a) * 8.5, Math.sin(a) * 8.5); ctx.lineTo(Math.cos(a + 0.22) * 4, Math.sin(a + 0.22) * 4); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+  ctx.fillStyle = '#3a3a52'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#7a7a9a'; ctx.beginPath(); ctx.arc(-1.5, -1.5, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 function drawBuzzy(e, x, y) {
   const dir = e.vx >= 0 ? 1 : -1, step = Math.floor(clock * 6 + e.id) % 2;
@@ -584,6 +622,29 @@ function drawHazards() {
     ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.ellipse(x + 8 + dir * 2, y + 4, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill();
   }
 }
+function drawBelts() {                                                                 // 컨베이어: 땅 윗면에 가는 줄무늬가 방향으로 흘러간다
+  if (G.inRoom) return;
+  for (const b of G.belts) {
+    const x0 = b.x0 * T - G.camX, x1 = (b.x1 + 1) * T - G.camX; if (x1 < 0 || x0 > VW) continue;
+    const y = HUD + GROUND * T; RC(x0, y, x1 - x0, 4, '#555a6a'); RC(x0, y, x1 - x0, 1, '#9aa0b4');
+    ctx.fillStyle = '#ffd23a'; const off = (clock * 24 * b.dir) % 12;
+    for (let x = x0 - 12 + (off + 12) % 12; x < x1; x += 12) { const a = Math.max(x, x0), z = Math.min(x + 4, x1); if (z > a) ctx.fillRect(a, y + 1, z - a, 2); }
+    ctx.fillStyle = '#ff9a3a'; for (const ex of [x0 + 2, x1 - 6]) { ctx.beginPath(); ctx.arc(ex + 2, y + 2, 2.2, 0, Math.PI * 2); ctx.fill(); }
+  }
+}
+function drawCurrents() {                                                               // 물살: 흐르는 방향으로 흐릿한 줄기와 화살표
+  if (G.inRoom || !G.level.water) return;
+  for (const c of G.currents) {
+    const x0 = c.x0 * T - G.camX, x1 = (c.x1 + 1) * T - G.camX, y0 = HUD + c.y0 * T, y1 = HUD + (c.y1 + 1) * T; if (x1 < 0 || x0 > VW) continue;
+    ctx.fillStyle = 'rgba(190,235,255,.10)'; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.strokeStyle = 'rgba(230,248,255,.55)'; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 8; i++) {
+      const fx = c.dx ? ((clock * 30 * Math.sign(c.dx) + i * 37) % (x1 - x0 + 20) + (x1 - x0 + 20)) % (x1 - x0 + 20) : (i * 31) % (x1 - x0), fy = c.dy ? ((clock * 30 * Math.sign(c.dy) + i * 23) % (y1 - y0) + (y1 - y0)) % (y1 - y0) : (i * 19) % (y1 - y0);
+      const px = x0 + (c.dx ? fx - 10 : fx), py = y0 + (c.dx ? (i * 19) % (y1 - y0) : fy); if (px < x0 || px > x1) continue;
+      ctx.beginPath(); if (c.dx) { ctx.moveTo(px, py); ctx.lineTo(px + 9 * Math.sign(c.dx), py); ctx.lineTo(px + 6 * Math.sign(c.dx), py - 2); ctx.moveTo(px + 9 * Math.sign(c.dx), py); ctx.lineTo(px + 6 * Math.sign(c.dx), py + 2); } else { ctx.moveTo(px, py); ctx.lineTo(px, py + 9 * Math.sign(c.dy)); ctx.lineTo(px - 2, py + 6 * Math.sign(c.dy)); ctx.moveTo(px, py + 9 * Math.sign(c.dy)); ctx.lineTo(px + 2, py + 6 * Math.sign(c.dy)); } ctx.stroke();
+    }
+  }
+}
 function drawEnemies() {
   for (const e of G.enemies) {
     if (!e.active) continue;
@@ -602,6 +663,10 @@ function drawEnemies() {
     else if (e.type === 'swimcheep') drawSwimCheep(e, x, y);
     else if (e.type === 'urchin') drawUrchin(e, x, y);
     else if (e.type === 'boo') drawBoo(e, x, y);
+    else if (e.type === 'bobomb') drawBobomb(e, x, y);
+    else if (e.type === 'paratroopa' || e.type === 'redpara') drawParatroopa(e, x, y);
+    else if (e.type === 'blooper') drawBlooper(e, x, y);
+    else if (e.type === 'spikeball') drawSpikeBall(e, x, y);
     else drawKoopa(e, x, y);
     ctx.restore();
   }
@@ -665,6 +730,10 @@ function drawFx() {
       for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; ctx.fillRect(x + Math.cos(a) * r - 1, y + Math.sin(a) * r - 1, 3, 3); }
       ctx.globalAlpha = 1;
     }
+    else if (f.kind === 'boom') {                                                       // 폭탄병 폭발: 커지는 불덩이
+      const x = f.x - G.camX, y = HUD + f.y, r = 6 + k * 30; ctx.globalAlpha = 1 - k;
+      ctx.fillStyle = '#ff7a20'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#ffe070'; ctx.beginPath(); ctx.arc(x, y, r * 0.62, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r * 0.3, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    }
     else if (f.kind === 'brick') { const x = f.x - G.camX + f.vx * f.t, y = HUD + f.y + f.vy * f.t + 500 * f.t * f.t; ctx.globalAlpha = 1 - k; RC(x - 3, y - 3, 6, 6, '#c84c0c'); ctx.globalAlpha = 1; }
   }
 }
@@ -682,15 +751,16 @@ function drawHud() {
 function draw() {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, VW, CH);
   if (!G) { ctx.fillStyle = '#5c94fc'; ctx.fillRect(0, HUD, VW, VH); drawHud(); return; }
-  const th = THEME[G.inRoom ? 'cave' : G.level.theme];
+  const bgName = G.inRoom ? (G.roomKind === 'sky' ? 'sky' : 'cave') : G.level.theme, th = THEME[bgName];
   ctx.save(); ctx.beginPath(); ctx.rect(0, HUD, VW, VH); ctx.clip();
-  drawBackground(th, G.camX, G.inRoom ? 'cave' : G.level.theme);
+  if (shakeT > 0) { shakeT -= 1 / 60; ctx.translate((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4); }
+  drawBackground(th, G.camX, bgName);
   drawPlants(); drawItems(); drawLifts();
   if (G.phase === 'warp') drawMario();                                                 // 파이프에 들어가고 나올 때는 파이프가 마리오를 가린다
   drawTiles(th);
-  drawEnemies(); drawBoss(); drawBars(); drawHazards(); drawHammers(); if (G.phase !== 'warp') drawMario(); drawFx();
+  drawBelts(); drawEnemies(); drawBoss(); drawBars(); drawHazards(); drawHammers(); if (G.phase !== 'warp') drawMario(); drawFx();
   if (!G.inRoom && G.level.water) {                                                    // 물속: 파란 막과 올라가는 거품
-    ctx.fillStyle = 'rgba(30,110,210,.22)'; ctx.fillRect(0, HUD, VW, VH);
+    drawCurrents(); ctx.fillStyle = 'rgba(30,110,210,.22)'; ctx.fillRect(0, HUD, VW, VH);
     ctx.fillStyle = 'rgba(255,255,255,.5)';
     for (let i = 0; i < 12; i++) { const bx = ((i * 41 + Math.sin(clock + i) * 5 - G.camX * 0.8) % (VW + 20) + VW + 20) % (VW + 20) - 10, by = HUD + VH - ((clock * (14 + (i % 4) * 6) + i * 29) % VH); ctx.beginPath(); ctx.arc(bx, by, 1 + (i % 3) * 0.7, 0, Math.PI * 2); ctx.fill(); }
   }

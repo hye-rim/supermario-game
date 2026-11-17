@@ -8,7 +8,7 @@
 //   코스 설정: ice(바닥이 미끄럽다) · water(헤엄) · cacti([[x, 높이]]) · 적 {type, x, y(칸, 날아다니는 적)}
 //   식물(piranhas)·들어갈 수 있는 파이프(warps: 들어가는 파이프 x, 나오는 파이프 x)는 파이프 왼쪽 칸 x 로 적는다
 const LEVELS_SM = (() => {
-  const T = 16, ROWS = 13, GROUND = 11;
+  const T = 16, ROWS = 13, GROUND = 11, SKY_COINS = 24;
 
   function make(spec) {
     const w = spec.w;
@@ -42,6 +42,8 @@ const LEVELS_SM = (() => {
       cannons: (spec.cannons || []).map(([x, y]) => ({ x: x * T, y: y * T })),
       bars: (spec.bars || []).map((b) => ({ cx: b.x * T + T / 2, cy: b.y * T + T / 2, len: b.len, spd: b.spd, ang: b.ang || 0 })),
       lifts: (spec.lifts || []).map((l) => ({ ...l })),
+      belts: (spec.belts || []).map(([x0, x1, dir]) => ({ x0, x1, dir })),                       // 컨베이어: [시작 칸, 끝 칸, 방향 ±1]
+      currents: (spec.currents || []).map(([x0, x1, y0, y1, dx, dy]) => ({ x0, x1, y0, y1, dx: dx || 0, dy: dy || 0 })),   // 물살(물속): 칸 범위와 밀리는 속도(px/s)
       boss: spec.boss || null, bridge: spec.bridge || null, cheeps: spec.cheeps || null, ice: !!spec.ice, water: !!spec.water,
     };
   }
@@ -55,7 +57,12 @@ const LEVELS_SM = (() => {
   const sp = (x) => ({ type: 'spiny', x });                   // 가시 거북(땅에서 걷는다): 밟으면 다친다
   const sw = (x, y) => ({ type: 'swimcheep', x, y });         // 헤엄치는 물고기: 물속 코스에서 오간다
   const ur = (x, y) => ({ type: 'urchin', x, y });            // 성게: 가만히 떠 있고 닿으면 다친다
-  const bo = (x, y) => ({ type: 'boo', x, y });               // 수줍은 유령: 바라보면 멈추고 등을 돌리면 다가온다
+  const bo = (x, y) => ({ type: 'boo', x, y });
+  const bb = (x) => ({ type: 'bobomb', x });                  // 폭탄병: 밟으면 불이 붙어 뛰어오다 터진다
+  const pk = (x) => ({ type: 'paratroopa', x });              // 초록 날개 거북: 통통 튄다
+  const rp = (x, y) => ({ type: 'redpara', x, y });           // 빨간 날개 거북: 위아래로 날아다닌다
+  const bl = (x, y) => ({ type: 'blooper', x, y });           // 오징어: 물속에서 움찔움찔 쫓아온다
+  const sb = (x) => ({ type: 'spikeball', x });               // 굴러다니는 가시 공               // 수줍은 유령: 바라보면 멈추고 등을 돌리면 다가온다
   const run = (x0, x1, y) => { const a = []; for (let x = x0; x <= x1; x++) a.push([x, y]); return a; };
 
   const BASE = [
@@ -80,7 +87,8 @@ const LEVELS_SM = (() => {
       rows: [[44, 48, 4, 'B'], [70, 75, 5, 'B']],
       coins: [...run(18, 22, 9), ...run(26, 27, 8), ...run(53, 55, 8), ...run(45, 47, 3), ...run(71, 74, 4), ...run(81, 84, 8), ...run(106, 108, 8)],
       stairs: [{ x: 112, n: 8, dir: 1 }], ceilingEnd: 108,
-      enemies: [g(10), g(23), k(36), bz(47), g(50), g(58), rk(64), g(73), g(75), k(77), g(90), bz(101), g(103), k(105), g(115)],
+      enemies: [g(10), bb(23), k(36), bz(47), g(50), bb(58), rk(64), g(73), g(75), k(77), sb(90), bz(101), g(103), k(105), sb(115)],
+      belts: [[30, 46, -1], [88, 102, 1]],
     }),
     make({
       name: '하늘 구름', theme: 'sky', w: 140, time: 350, flag: 132,
@@ -90,7 +98,7 @@ const LEVELS_SM = (() => {
       rows: [[32, 34, 6, 'B'], [56, 58, 6, 'B'], [82, 85, 6, 'B']],
       coins: [...run(15, 17, 8), ...run(27, 29, 8), ...run(37, 39, 8), ...run(51, 53, 8), ...run(61, 63, 8), ...run(77, 79, 8), ...run(87, 89, 8), ...run(105, 107, 8), ...run(115, 117, 8), ...run(32, 34, 3), ...run(70, 76, 1), ...run(71, 75, 2)],
       stairs: [{ x: 122, n: 8, dir: 1 }],
-      enemies: [g(8), rk(22), g(44), rk(48), bz(66), g(84), hb(95), g(124), lk(26, 16, 84)], cheeps: [101, 116],
+      enemies: [g(8), rk(22), pk(44), rk(48), bz(66), g(84), hb(95), g(124), lk(26, 16, 84), rp(16, 7), rp(28, 7), rp(38, 8)], cheeps: [101, 116],
     }),
     make({
       name: '성', theme: 'castle', w: 150, time: 300, flag: 143, ceiling: 2,
@@ -101,7 +109,8 @@ const LEVELS_SM = (() => {
       rows: [[34, 38, 5, 'S'], [74, 79, 4, 'B'], [112, 118, 5, 'S']],
       coins: [...run(21, 23, 8), ...run(41, 43, 8), ...run(61, 64, 8), ...run(83, 85, 8), ...run(101, 103, 8), ...run(126, 129, 8), ...run(75, 78, 3)],
       stairs: [{ x: 133, n: 8, dir: 1 }], ceilingEnd: 129,
-      enemies: [g(10), g(20), rk(26), g(32), bz(38), k(46), g(58), g(70), rk(74), g(78), g(88), bz(99), g(106), hb(115), g(122), g(136), pd(42), pd(62), pd(127)],
+      enemies: [g(10), g(20), rk(26), sb(32), bz(38), k(46), bb(58), g(70), rk(74), g(78), sb(88), bz(99), bb(106), hb(115), g(122), g(136), pd(42), pd(62), pd(127)],
+      belts: [[4, 18, 1], [26, 38, -1], [66, 80, -1], [88, 98, 1]],
     }),
     make({                                                                  // 마지막: 쿠파 대마왕이 다리 위에서 기다린다. 도끼를 건드리면 다리가 무너진다
       name: '쿠파 성', theme: 'castle', w: 80, time: 300, ceiling: 3,
@@ -119,21 +128,21 @@ const LEVELS_SM = (() => {
   const ICE = make({
     name: '설원', theme: 'ice', ice: true, w: 130, time: 400, flag: 122,
     ground: [[0, 32], [36, 62], [66, 92], [96, 129]],
-    blocks: [[11, 7, 'B'], [12, 7, 'M'], [13, 7, 'B'], [40, 7, '?'], [41, 7, '*'], [42, 7, '?'], [70, 7, 'B'], [71, 7, '$'], [72, 7, 'B'], [100, 7, '?'], [101, 7, '1']],
+    blocks: [[11, 7, 'B'], [12, 7, 'M'], [13, 7, 'B'], [40, 7, '?'], [41, 7, '*'], [42, 7, '?'], [70, 7, 'B'], [71, 7, '$'], [72, 7, 'B'], [100, 7, '?'], [101, 7, '1'], [58, 7, 'V']],
     rows: [[44, 48, 4, 'B'], [78, 83, 4, 'B']],
     coins: [...run(20, 24, 8), ...run(53, 56, 8), ...run(44, 48, 3), ...run(84, 88, 8), ...run(78, 83, 3), ...run(33, 35, 8)],
     stairs: [st(122)],
-    enemies: [g(16), g(27), k(48), g(56), rk(60), g(70), bz(75), k(80), g(88), g(100), rk(104), g(108)],
+    enemies: [g(16), bb(27), pk(48), g(56), rk(60), g(70), bz(75), k(80), bb(88), g(100), rk(104), g(108)],
   });
   const DESERT = make({
     name: '사막', theme: 'desert', w: 140, time: 400, flag: 132,
     ground: [[0, 30], [34, 58], [62, 88], [92, 112], [116, 139]],
     cacti: [[16, 1], [24, 2], [40, 1], [50, 2], [70, 1], [79, 2], [98, 2], [106, 1]],
-    blocks: [[10, 7, 'B'], [11, 7, 'M'], [12, 7, 'B'], [38, 7, '?'], [39, 7, '?'], [66, 7, '$'], [67, 7, '?'], [96, 7, '1'], [100, 7, '*']],
+    blocks: [[10, 7, 'B'], [11, 7, 'M'], [12, 7, 'B'], [38, 7, '?'], [39, 7, '?'], [66, 7, '$'], [67, 7, '?'], [96, 7, '1'], [100, 7, '*'], [75, 7, 'V']],
     rows: [[50, 54, 5, 'B']],
     coins: [...run(20, 22, 8), ...run(52, 56, 8), ...run(88, 91, 8), ...run(110, 115, 8), ...run(50, 54, 4)],
     stairs: [st(132)],
-    enemies: [g(14), sp(20), g(28), k(36), g(45), sp(52), rk(56), g(64), bz(72), g(79), sp(86), k(94), g(101), g(108), sp(110), g(120)],
+    enemies: [g(14), sp(20), sb(28), pk(36), g(45), sp(52), rk(56), g(64), bz(72), g(79), sp(86), k(94), bb(101), sb(108), sp(110), g(120)],
   });
   const MUSH = make({
     name: '버섯 숲', theme: 'mushroom', w: 130, time: 400, flag: 122,
@@ -142,7 +151,7 @@ const LEVELS_SM = (() => {
     rows: [[28, 29, 8, 'T'], [53, 54, 8, 'T'], [79, 80, 8, 'T'], [105, 106, 8, 'T'], [14, 18, 7, 'T'], [38, 43, 7, 'T'], [64, 70, 7, 'T'], [88, 95, 7, 'T']],
     coins: [...run(15, 17, 5), ...run(39, 42, 5), ...run(65, 69, 5), ...run(89, 94, 5), ...run(28, 29, 6), ...run(53, 54, 6), ...run(79, 80, 6), ...run(105, 106, 6)],
     stairs: [st(122)],
-    enemies: [g(6), k(20), rk(24), g(34), g(45), k(50), g(60), hb(74), g(86), rk(92), g(100), k(110)],
+    enemies: [g(6), pk(20), rk(24), g(34), g(45), pk(50), g(60), hb(74), g(86), rk(92), bb(100), k(110), rp(29, 6), rp(54, 6)],
   });
   const WATER = make({
     name: '물속', theme: 'water', water: true, w: 140, time: 400, flag: 132, ceiling: 2, ceilingEnd: 116,
@@ -151,7 +160,8 @@ const LEVELS_SM = (() => {
       [30, 10, 'S'], [30, 9, 'S'], [31, 10, 'S'], [31, 9, 'S'], [52, 10, 'S'], [52, 9, 'S'], [52, 8, 'S'], [74, 10, 'S'], [74, 9, 'S'], [75, 10, 'S'], [75, 9, 'S'], [74, 8, 'S'], [96, 10, 'S'], [96, 9, 'S'], [96, 8, 'S'], [97, 10, 'S'], [97, 9, 'S']],
     coins: [...run(14, 18, 6), ...run(40, 46, 5), ...run(64, 70, 8), ...run(84, 90, 5), ...run(106, 112, 6)],
     stairs: [st(132)],
-    enemies: [sw(20, 5), sw(28, 7), sw(42, 4), ur(50, 9), sw(54, 8), sw(66, 6), ur(72, 6), sw(78, 8), ur(92, 5), sw(98, 7), ur(104, 8), sw(110, 4)],
+    enemies: [sw(20, 5), bl(28, 6), sw(42, 4), ur(50, 9), bl(54, 5), sw(66, 6), ur(72, 6), bl(78, 6), ur(92, 5), bl(98, 5), ur(104, 8), bl(110, 4)],
+    currents: [[33, 48, 3, 10, 34, 0], [60, 72, 3, 10, -34, 0], [84, 100, 3, 10, 0, -26]],
   });
   const GHOST = make({
     name: '유령의 집', theme: 'ghost', w: 140, time: 350, flag: 132, ceiling: 3, ceilingEnd: 116,
@@ -160,7 +170,7 @@ const LEVELS_SM = (() => {
     rows: [[58, 64, 5, 'B']],
     coins: [...run(14, 18, 8), ...run(36, 42, 8), ...run(58, 64, 4), ...run(88, 94, 8), ...run(106, 112, 8)],
     stairs: [st(132)],
-    enemies: [g(14), bo(20, 6), bz(28), g(34), bo(36, 8), bo(44, 6), k(52), bo(60, 7), g(66), bo(70, 6), g(78), bo(84, 8), bz(96), bo(92, 6), bo(106, 7)],
+    enemies: [g(14), bo(20, 6), bz(28), g(34), bo(36, 8), bo(44, 6), bb(52), bo(60, 7), sb(66), bo(70, 6), g(78), bo(84, 8), bz(96), bo(92, 6), bo(106, 7)],
   });
   const STAGES = [BASE[0], ICE, BASE[1], DESERT, MUSH, BASE[2], WATER, GHOST, BASE[3], BASE[4]];
   // 지하 보너스 방: 파이프로 들어가면 나오는 동전 방. 오른쪽 끝의 가로 파이프(E)로 걸어 들어가면 코스로 돌아간다
@@ -172,6 +182,13 @@ const LEVELS_SM = (() => {
     tiles[GROUND - 2][13] = tiles[GROUND - 2][14] = 'E'; tiles[GROUND - 1][13] = tiles[GROUND - 1][14] = 'E';
     return { w, tiles, theme: 'cave', coins: 9 + 9 + 7 };
   })();
-  return { T, ROWS, GROUND, STAGES, ROOM };
+  // 구름 위 코인 천국: 덩굴 꼭대기로 올라가면 나온다. 구름 길 끝에서 뛰어내리면 덩굴 밑으로 돌아온다
+  const SKY = (() => {
+    const w = 16, tiles = Array.from({ length: ROWS }, () => new Array(w).fill('.'));
+    for (let x = 0; x <= 12; x++) { tiles[GROUND][x] = '#'; tiles[GROUND + 1][x] = '#'; }
+    for (let x = 2; x <= 11; x++) tiles[9][x] = 'C'; for (let x = 3; x <= 10; x++) tiles[7][x] = 'C'; for (let x = 4; x <= 9; x++) tiles[5][x] = 'C';
+    return { w, tiles, theme: 'sky', coins: SKY_COINS };
+  })();
+  return { T, ROWS, GROUND, STAGES, ROOM, SKY };
 })();
 if (typeof module !== 'undefined') module.exports = LEVELS_SM;

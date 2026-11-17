@@ -47,7 +47,7 @@ test('every stage is a valid course: right size, ground, start, flag, and no imp
     }
     // 적은 땅 위에서 시작 (용암 불꽃은 구멍에서 튀어 오른다)
     assert.ok(s.spawns.length >= (s.boss ? 3 : 8));
-    for (const sp of s.spawns.filter((q) => q.type !== 'podoboo')) assert.ok(s.ground.some(([a, b]) => sp.x >= a && sp.x <= b), `${s.name}: enemy at ${sp.x} stands on ground`);
+    for (const sp of s.spawns.filter((q) => q.type !== 'podoboo' && !(L.ENEMY[q.type].fly && q.y !== undefined))) assert.ok(s.ground.some(([a, b]) => sp.x >= a && sp.x <= b), `${s.name}: enemy at ${sp.x} stands on ground`);
     // 파이프를 넘어 내려앉는 자리(파이프 오른쪽 2~5칸)에는 적을 두지 않는다 (착지하자마자 부딪히는 불공정한 자리)
     for (let x = 0; x < s.w - 1; x++) for (let y = 0; y < L.ROWS; y++) {
       if (s.tiles[y][x] === 'P' && s.tiles[y][x + 1] === 'P' && (x === 0 || s.tiles[y][x - 1] !== 'P')) {
@@ -1334,4 +1334,94 @@ test('a simple runner can cross every course up to the last staircase when nothi
     }
     assert.ok(st.m.x > (st.level.flag - 11) * T, 'stage ' + stage + ' reached the last staircase (phase ' + st.phase + ', x ' + Math.round(st.m.x) + ', y ' + Math.round(st.m.y) + ')');
   }
+});
+
+// ---------- 새 적: 폭탄병 · 날개 거북 · 오징어 · 가시 공 / 새 지형: 컨베이어 · 물살 · 덩굴과 코인 천국 ----------
+const spawn = (st, type, x, y, vx = 0) => { const d = L.ENEMY[type]; const e = L.makeEnemy(type, x, y !== undefined ? y : GROUND * T - d.h, 90 + st.enemies.length); e.active = true; e.vx = vx; st.enemies.push(e); return e; };
+
+test('a bobomb walks, hurts on touch, and a stomp lights its fuse; it runs at mario and blows up, hurting him and knocking out enemies nearby', () => {
+  const st = world({ x: 5 }); const b = spawn(st, 'bobomb', 12 * T, undefined, -26); b.vx = -26; run(st, 0.3); assert.ok(b.x < 12 * T, 'walks'); st.enemies = [];
+  const side = world({ x: 5 }); side.m.invuln = 0; setBig(side); spawn(side, 'bobomb', 5 * T + 10, undefined, 0); L.step(side, 0.01, {}); assert.strictEqual(side.m.size, 'small', 'touching it from the side hurts');
+  const s2 = world({ x: 10 }); const bomb = spawn(s2, 'bobomb', 10 * T, GROUND * T - 14 - 40, 0); s2.m.y = bomb.y - s2.m.h - 3; s2.m.vy = 100; s2.m.onGround = false; for (let i = 0; i < 20 && bomb.state !== 'lit'; i++) L.step(s2, 0.01, {});
+  assert.strictEqual(bomb.state, 'lit', 'a stomp lights the fuse'); assert.ok(s2.m.vy < 0, 'and bounces mario');
+  const far = world({ x: 3 }); const lit = spawn(far, 'bobomb', 14 * T, undefined, 0); lit.state = 'lit'; lit.timer = 0; const gm = spawn(far, 'goomba', 14 * T - L.BOBOMB.run * L.BOBOMB.fuse + 2, undefined, 0); let boom = null;
+  for (let i = 0; i < 300 && !boom; i++) { L.step(far, 0.01, {}); boom = evs(far, 'boom')[0] || boom; }
+  assert.ok(boom, 'it explodes after the fuse'); assert.strictEqual(gm.state, 'dead', 'a neighbour is knocked out'); assert.ok(far.enemies.every((e) => e !== lit), 'the bomb is gone');
+  const close = world({ x: 9 }); setBig(close); close.m.invuln = 0; const l2 = spawn(close, 'bobomb', 10 * T, undefined, 0); l2.state = 'lit'; l2.timer = L.BOBOMB.fuse - 0.005; l2.vx = 0; L.step(close, 0.01, {}); L.step(close, 0.01, {});
+  assert.strictEqual(close.m.size, 'small', 'the blast hurts mario when he is close');
+  const safe = world({ x: 9 }); safe.m.star = 5; const l3 = spawn(safe, 'bobomb', 10 * T, undefined, 0); l3.state = 'lit'; l3.timer = L.BOBOMB.fuse - 0.005; L.step(safe, 0.01, {}); assert.ok(!safe.m.dead, 'a star mario is safe');
+});
+
+test('a lit bobomb does not hurt by touching, and a fireball or a star just knocks out a walking one', () => {
+  const st = world({ x: 8 }); const l = spawn(st, 'bobomb', 8 * T + 4, undefined, 0); l.state = 'lit'; l.timer = 0; run(st, 0.3); assert.ok(!st.m.dead && st.m.size === 'small', 'touching a lit bomb is harmless until it blows');
+  const f = world({ x: 5 }); f.m.size = 'fire'; setBig(f); L.setSize(f, 'fire'); const w = spawn(f, 'bobomb', 14 * T, undefined, 0); f.fireballs.push({ id: 1, x: w.x - 6, y: w.y + 2, w: 6, h: 6, vx: 100, vy: 0, life: 3 }); run(f, 0.1); assert.strictEqual(w.state, 'dead', 'fire knocks it out without a blast');
+});
+
+test('a green winged koopa bounces along, a red one flies up and down, and a stomp takes the wings off and makes a plain koopa', () => {
+  const st = world({ x: 3 }); const p = spawn(st, 'paratroopa', 20 * T, undefined, -26); let hops = 0, last = true; for (let i = 0; i < 300; i++) { L.step(st, 0.01, {}); if (!p.vy && last) { /* on ground */ } if (p.vy < -100 && last) hops++; last = p.vy >= -100; } assert.ok(hops >= 1, 'it hops: ' + hops);
+  const r = world({ x: 3 }); const rp = spawn(r, 'redpara', 20 * T, 5 * T, 0); let lo = 999, hi = -999; for (let i = 0; i < 600; i++) { L.step(r, 0.01, {}); lo = Math.min(lo, rp.y); hi = Math.max(hi, rp.y); } assert.ok(hi - lo > 40, 'flies up and down: ' + (hi - lo)); assert.ok(Math.abs(rp.x - 20 * T) < 1, 'and stays put sideways');
+  for (const [type, plain] of [['paratroopa', 'koopa'], ['redpara', 'redkoopa']]) {
+    const s = world({ x: 10 }); const e = spawn(s, type, 10 * T, GROUND * T - 40, 0); e.id = 0; if (type === 'redpara') e.y0 = e.y; s.m.y = e.y - s.m.h - 4; s.m.vy = 120; s.m.onGround = false; s.m.x = e.x;
+    for (let i = 0; i < 12 && e.type === type; i++) L.step(s, 0.01, {}); assert.strictEqual(e.type, plain, type + ' loses its wings'); assert.ok(s.m.vy < 0 && !s.m.dead, 'mario bounces off'); assert.ok(s.score >= 100, 'stomp points');
+  }
+  const side = world({ x: 5 }); spawn(side, 'paratroopa', 5 * T + 6, undefined, 0); L.step(side, 0.01, {}); assert.ok(side.m.dead, 'touching it from the side hurts');
+});
+
+test('a blooper sinks, squirts toward mario, hurts on touch and cannot be stomped, but a fireball or a star beats it', () => {
+  const st = world({ x: 5 }); const b = spawn(st, 'blooper', 20 * T, 5 * T, 0); st.m.x = 30 * T; st.m.y = 3 * T; let y0 = b.y, sunk = false, rose = false, closer = false; const x0 = b.x;
+  for (let i = 0; i < 400; i++) { const py = b.y; L.step(st, 0.01, {}); st.m.x = 30 * T; st.m.y = 3 * T; if (b.y > py + 0.05) sunk = true; if (b.y < py - 0.3) rose = true; } closer = b.x > x0 + 6;
+  assert.ok(sunk && rose && closer, `sinks ${sunk}, squirts ${rose}, comes toward mario ${closer}`);
+  const hit = world({ x: 10 }); const hb = spawn(hit, 'blooper', 10 * T, GROUND * T - 40, 0); hit.m.y = hb.y - hit.m.h - 2; hit.m.vy = 150; hit.m.onGround = false; hit.m.x = hb.x; for (let i = 0; i < 12; i++) L.step(hit, 0.01, {}); assert.ok(hit.m.dead || hit.m.size === 'small' && hit.m.invuln > 0, 'a stomp does not kill it and it hurts mario'); assert.strictEqual(hb.state, 'walk');
+  const fire = world({ x: 5 }); L.setSize(fire, 'fire'); const fb = spawn(fire, 'blooper', 14 * T, GROUND * T - 40, 0); fire.fireballs.push({ id: 5, x: fb.x - 6, y: fb.y + 4, w: 6, h: 6, vx: 100, vy: 0, life: 3 }); L.step(fire, 0.01, {}); assert.strictEqual(fb.state, 'dead');
+  const sw = world({ x: 5 }); sw.m.star = 5; const sbl = spawn(sw, 'blooper', 5 * T + 4, GROUND * T - 20, 0); L.step(sw, 0.01, {}); assert.strictEqual(sbl.state, 'dead', 'a star beats it');
+});
+
+test('a spike ball rolls along and bounces off walls; stomping it hurts, fire does nothing, and only a star or a shell beats it', () => {
+  const st = world({ x: 3 }); put(st, 30, GROUND - 1, '#'); const b = spawn(st, 'spikeball', 25 * T, undefined, -42); b.vx = 42; run(st, 3); assert.ok(b.x < 30 * T && b.vx < 0, 'turns at the wall');
+  const on = world({ x: 10 }); const sb = spawn(on, 'spikeball', 10 * T, GROUND * T - 40, 0); on.m.y = sb.y - on.m.h - 4; on.m.vy = 120; on.m.onGround = false; on.m.x = sb.x; for (let i = 0; i < 10; i++) L.step(on, 0.01, {}); assert.ok(on.m.dead || on.m.invuln > 0, 'landing on it hurts');
+  const f = world({ x: 3 }); L.setSize(f, 'fire'); const fb = spawn(f, 'spikeball', 14 * T, undefined, 0); f.fireballs.push({ id: 3, x: fb.x - 6, y: fb.y + 2, w: 6, h: 6, vx: 100, vy: 0, life: 3 }); run(f, 0.1); assert.notStrictEqual(fb.state, 'dead', 'fire does nothing');
+  const s = world({ x: 5 }); s.m.star = 5; const q = spawn(s, 'spikeball', 5 * T + 4, undefined, 0); L.step(s, 0.01, {}); assert.strictEqual(q.state, 'dead', 'a star beats it');
+  const sh = world({ x: 3 }); const shell = spawn(sh, 'koopa', 10 * T, undefined, 0); shell.state = 'shellMove'; shell.h = 12; shell.y = GROUND * T - 12; shell.vx = L.SHELL_SPEED; shell.grace = 0; const ball = spawn(sh, 'spikeball', 11 * T, undefined, 0); run(sh, 0.3); assert.strictEqual(ball.state, 'dead', 'a moving shell beats it');
+});
+
+test('a conveyor belt pushes whoever stands on it, forward or back, and does nothing off the belt', () => {
+  const mk = (dir) => { const st = world({ x: 10 }); st.belts = [{ x0: 8, x1: 20, dir }]; return st; };
+  for (const dir of [1, -1]) { const st = mk(dir); const x0 = st.m.x; run(st, 1, {}); assert.ok((st.m.x - x0) * dir > L.BELT_V * 0.8, 'pushed ' + (st.m.x - x0)); }
+  const off = world({ x: 30 }); off.belts = [{ x0: 8, x1: 20, dir: 1 }]; const x1 = off.m.x; run(off, 1, {}); assert.ok(Math.abs(off.m.x - x1) < 0.5, 'not off the belt');
+  const g = world({ x: 10 }); g.belts = [{ x0: 8, x1: 20, dir: 1 }]; const e = spawn(g, 'goomba', 15 * T, undefined, 0); g.m.x = 3 * T; const ex = e.x; run(g, 1, {}); assert.ok(e.x - ex > 20, 'enemies ride it too');
+  const air = world({ x: 10 }); air.belts = [{ x0: 8, x1: 20, dir: 1 }]; air.m.y -= 60; air.m.onGround = false; air.m.vy = -300; const ax = air.m.x; run(air, 0.2, {}); assert.ok(Math.abs(air.m.x - ax) < 1, 'no push in the air');
+});
+
+test('a current in the water course pushes a swimming mario; elsewhere there is none', () => {
+  const st = world({ x: 10 }); st.level = { ...st.level, water: true }; st.currents = [{ x0: 5, x1: 30, y0: 0, y1: 12, dx: 40, dy: 0 }]; const x0 = st.m.x; run(st, 1, {}); assert.ok(st.m.x - x0 > 25, 'pushed ' + (st.m.x - x0));
+  const dry = world({ x: 10 }); dry.currents = [{ x0: 5, x1: 30, y0: 0, y1: 12, dx: 40, dy: 0 }]; const d0 = dry.m.x; run(dry, 1, {}); assert.ok(Math.abs(dry.m.x - d0) < 1, 'only underwater');
+});
+
+test('a vine block grows a vine, mario climbs it with jump and down, lets go sideways, and the top leads to the coin heaven and back', () => {
+  const st = world({ x: 10 }); put(st, 10, 7, 'V'); st.m.x = 10 * T + 2; st.m.y = 8 * T + 2; st.m.vy = -200; st.m.onGround = false; L.hitBlock(st, 10, 7);
+  assert.strictEqual(st.tiles[7][10], 'U'); for (let k = 1; k <= L.VINE_H; k++) assert.strictEqual(st.tiles[7 - k][10], 'v', 'vine row ' + k); assert.ok(evs(st, 'vine').length === 1);
+  const c = world({ x: 10 }); for (let k = 1; k <= 6; k++) put(c, 10, 7 - k, 'v'); put(c, 10, 7, 'U'); c.m.x = 10 * T + 2; c.m.y = 7 * T - c.m.h; c.m.onGround = false; c.m.vy = 0;
+  const y0 = c.m.y; run(c, 0.5, { jumpHeld: true }); assert.ok(c.m.climb === 10 && c.m.y < y0 - 15, 'climbs up: ' + (y0 - c.m.y)); const y1 = c.m.y; run(c, 0.3, { down: true }); assert.ok(c.m.y > y1 + 8, 'and down'); const y2 = c.m.y; run(c, 0.3, {}); assert.ok(Math.abs(c.m.y - y2) < 0.5, 'holds still');
+  run(c, 0.2, { right: true }); assert.strictEqual(c.m.climb, null, 'sideways lets go');
+  const t = world({ x: 10 }); for (let k = 1; k <= 6; k++) put(t, 10, 7 - k, 'v'); put(t, 10, 7, 'U'); t.m.x = 10 * T + 2; t.m.y = 7 * T - t.m.h; t.m.onGround = false; t.m.vy = 0; run(t, 4, { jumpHeld: true });
+  assert.ok(t.inRoom && t.roomKind === 'sky', 'the top leads to the coin heaven'); assert.strictEqual(t.w, L.SKY.w); let coins0 = t.coins;
+  t.m.x = 3 * T; t.m.y = 9 * T; run(t, 1, {}); assert.ok(t.coins > coins0, 'coins up there');
+  t.m.x = 13 * T; t.m.onGround = false; for (let i = 0; i < 400 && t.inRoom; i++) L.step(t, 0.01, { right: true }); assert.ok(!t.inRoom && t.surface === null && !t.m.dead, 'jumping off the cloud brings him back'); assert.ok(Math.abs(t.m.x - (10 * T + 8)) < 40 && t.m.onGround, 'near the vine: ' + t.m.x);
+  assert.strictEqual(t.tiles[7][10], 'U', 'the course is as he left it');
+});
+
+test('stages: the new enemies and terrain are placed where they make sense', () => {
+  const kinds = (name) => new Set(L.STAGES[N(name) - 1].spawns.map((s) => s.type)), used = new Set();
+  for (const s of L.STAGES) for (const e of s.spawns) used.add(e.type);
+  for (const t of ['bobomb', 'paratroopa', 'redpara', 'blooper', 'spikeball']) assert.ok(used.has(t), t + ' is used');
+  assert.ok(kinds('물속').has('blooper') && !kinds('물속').has('bobomb'), 'bloopers swim in the water course only');
+  for (const s of L.STAGES) if (!s.water) assert.ok(!s.spawns.some((e) => e.type === 'blooper'), 'no blooper out of water');
+  assert.ok(kinds('설원').has('bobomb') && kinds('하늘 구름').has('redpara'));
+  assert.ok(L.STAGES[N('성') - 1].belts.length >= 3 && L.STAGES[N('동굴') - 1].belts.length >= 1, 'conveyors in the castle and cave');
+  assert.ok(L.STAGES[N('물속') - 1].currents.length >= 2, 'currents in the water course');
+  const vines = L.STAGES.filter((s) => s.tiles.some((r) => r.includes('V'))); assert.ok(vines.length >= 2, 'vine blocks in a couple of courses');
+  for (const s of L.STAGES) { for (const b of s.belts) assert.ok(s.tiles[GROUND][b.x0] !== '.' && s.tiles[GROUND][b.x1] !== '.' && b.x1 > b.x0 + 4, `belt on ground ${s.name}`); }
+  for (const s of vines) for (let y = 0; y < L.ROWS; y++) for (let x = 0; x < s.w; x++) if (s.tiles[y][x] === 'V') { assert.ok(y >= 5 && y <= 8, 'vine block within a jump'); for (let k = 1; k <= L.VINE_H; k++) assert.ok(!L.SOLID.has(s.tiles[y - k][x]), 'room for the vine'); }
+  for (const s of L.STAGES) for (const e of s.spawns) assert.ok(L.ENEMY[e.type], 'known enemy ' + e.type);
+  assert.strictEqual(L.SKY.tiles.flat().filter((c) => c === 'C').length, L.SKY.coins);
 });
