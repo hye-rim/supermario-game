@@ -54,7 +54,7 @@ function tone(freq, dur, type = 'square', vol = 0.04, slide = 0) {
 }
 const melody = (notes, step, type = 'square', vol = 0.045) => notes.forEach((f, i) => { if (f) setTimeout(() => tone(f, step * 0.9 / 1000, type, vol), i * step); });
 const sfx = {
-  jump: (big) => tone(big ? 300 : 380, 0.18, 'square', 0.04, 360),
+  jump: (big) => G && G.level.water && !G.inRoom ? sfx.swim() : tone(big ? 300 : 380, 0.18, 'square', 0.04, 360),
   coin: () => melody([988, 1319], 55, 'square', 0.04),
   bump: () => tone(160, 0.07, 'triangle', 0.06),
   brick: () => { tone(220, 0.14, 'sawtooth', 0.05, -120); },
@@ -87,6 +87,10 @@ const sfx = {
   cheep: () => tone(600, 0.14, 'sine', 0.04, 400),
   boom: () => { tone(110, 0.4, 'sawtooth', 0.08, -70); tone(60, 0.35, 'square', 0.06, -20); },
   vine: () => melody([392, 523, 659, 784, 988], 55, 'triangle', 0.04),
+  land: (water) => tone(water ? 90 : 130, water ? 0.09 : 0.05, 'triangle', water ? 0.03 : 0.035, -40),
+  splash: () => { tone(900, 0.22, 'sine', 0.04, -600); setTimeout(() => tone(500, 0.18, 'sine', 0.035, 300), 90); setTimeout(() => tone(700, 0.12, 'sine', 0.025, -300), 190); },
+  swim: () => tone(260, 0.16, 'sine', 0.045, 340),
+  slide: () => tone(1500 + Math.random() * 300, 0.07, 'sawtooth', 0.012, -700),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
@@ -145,7 +149,7 @@ let unlocked = Math.max(1, Math.min(L.STAGES.length, Number(store.get('smStage')
 let fxs = [], bumps = [];
 let banner = { text: '', sub: '', t: 0, color: '#fff' };
 let clock = 0, lastTick = 0, shakeT = 0;
-let jumpReq = 0;
+let jumpReq = 0, slideT = 0;
 
 /* @test-hooks:start */
 window.__sm = { get speed() { return SPEEDS[speedIdx].k; }, cycleSpeed, get pad() { return pad; }, get stick() { return stick; }, get padMode() { return padMode; }, togglePadMode, get G() { return G; }, get state() { return state; }, L, setG(g) { G = g; }, step: (dt) => update(dt), start: (n) => startGame(n) };
@@ -259,7 +263,8 @@ function startGame(stage = 1) {
   music.play(stageTune());
 }
 const STAGE_HINT = { ice: '바닥이 미끄러워요! 미리 멈춰요', desert: '선인장에 닿으면 아파요. 뛰어서 넘어요', mushroom: '버섯 위로 올라가면 동전과 블록이 있어요', water: '점프 버튼을 누를 때마다 한 번 헤엄쳐요', ghost: '유령은 바라보면 멈춰요! 등을 돌리면 다가와요' };
-function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : G.level.boss ? '쿠파를 지나 도끼까지! 불꽃 다섯 번이면 쓰러져요' : (STAGE_HINT[G.level.theme] || '깃대까지 달려요!'), 1.8); }
+function announceStage() {
+  if (G && G.level.water && !TUTORIAL) setTimeout(() => sfx.splash(), 150); showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : G.level.boss ? '쿠파를 지나 도끼까지! 불꽃 다섯 번이면 쓰러져요' : (STAGE_HINT[G.level.theme] || '깃대까지 달려요!'), 1.8); }
 function pause() {
   if (state !== 'play') return;
   state = 'paused'; music.suspend();
@@ -315,6 +320,8 @@ function update(dt) {
   if (jumpReq > 0) jumpReq = Math.max(0, jumpReq - dt);
   if (fireReq > 0) fireReq = Math.max(0, fireReq - dt);
   for (const e of G.events) handle(e);
+  slideT -= dt;
+  if (G.m.skid && G.m.onGround && G.level.ice && !G.inRoom && slideT <= 0) { sfx.slide(); slideT = 0.07; }
   const sec = Math.ceil(G.timeLeft);
   if (G.phase === 'play' && G.timeLeft < 30 && !G.tutorial && sec !== lastTick) { lastTick = sec; if (G.timeLeft < 10) sfx.tick(); }
 }
@@ -339,6 +346,7 @@ function handle(e) {
   else if (e.t === 'boom') { sfx.boom(); shakeT = 0.3; fxs.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 0.5 }); tutorialSignal('boom'); }
   else if (e.t === 'vine') { sfx.vine(); tutorialSignal('vine'); }
   else if (e.t === 'climb') tutorialSignal('climb');
+  else if (e.t === 'land') sfx.land(G.level.water && !G.inRoom);
   else if (e.t === 'sky') { music.play('heaven'); sfx.powerup(); showBanner('코인 천국!', '동전을 모으고 구름 끝에서 뛰어내려요', 2.6, '#ffd23a'); tutorialSignal('sky'); }
   else if (e.t === 'skyOut') { sfx.pipe(); music.play(stageTune(), G.hurried ? 1.35 : 1); }
   else if (e.t === 'cannon') sfx.cannon();
