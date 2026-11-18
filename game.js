@@ -90,6 +90,53 @@ const sfx = {
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
+// ---------- 배경음악: 코스마다 다른 짧은 곡을 WebAudio 로 만들어 반복한다 (결정적인 가짜 난수로 멜로디를 짜서 매번 같은 곡) ----------
+const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10], phryg: [0, 1, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10], lyd: [0, 2, 4, 6, 7, 9, 11], pent: [0, 2, 4, 7, 9], chrom: [0, 1, 3, 4, 6, 7, 9] };
+const TUNES = {
+  grass: { root: 60, scale: 'major', bpm: 152, prog: [0, 3, 4, 0], lead: 'square', seed: 21, rest: 0.22, bounce: true },
+  ice: { root: 67, scale: 'lyd', bpm: 116, prog: [0, 4, 5, 3], lead: 'triangle', seed: 22, rest: 0.3 },
+  cave: { root: 55, scale: 'dorian', bpm: 100, prog: [0, 0, 3, 6], lead: 'triangle', seed: 23, rest: 0.45 },
+  desert: { root: 57, scale: 'phryg', bpm: 124, prog: [0, 1, 0, 6], lead: 'square', seed: 24, rest: 0.28 },
+  mushroom: { root: 62, scale: 'pent', bpm: 136, prog: [0, 2, 1, 3], lead: 'square', seed: 25, rest: 0.2, bounce: true },
+  sky: { root: 64, scale: 'major', bpm: 140, prog: [0, 4, 5, 2], lead: 'triangle', seed: 26, rest: 0.25 },
+  water: { root: 55, scale: 'pent', bpm: 96, prog: [0, 2, 1, 3], lead: 'sine', seed: 27, rest: 0.4 },
+  ghost: { root: 53, scale: 'chrom', bpm: 90, prog: [0, 1, 0, 4], lead: 'triangle', seed: 28, rest: 0.45 },
+  castle: { root: 52, scale: 'minor', bpm: 140, prog: [0, 5, 6, 4], lead: 'sawtooth', seed: 29, rest: 0.2, drive: true },
+  bowser: { root: 50, scale: 'phryg', bpm: 172, prog: [0, 1, 0, 3], lead: 'sawtooth', seed: 30, rest: 0.1, drive: true },
+  star: { root: 62, scale: 'major', bpm: 192, prog: [0, 3, 0, 4], lead: 'square', seed: 31, rest: 0.05 },
+  room: { root: 60, scale: 'major', bpm: 164, prog: [0, 5, 3, 4], lead: 'triangle', seed: 32, rest: 0.2, bounce: true },
+  heaven: { root: 67, scale: 'pent', bpm: 150, prog: [0, 2, 3, 1], lead: 'square', seed: 33, rest: 0.15 },
+};
+const music = (() => {
+  let cur = null, timer = null, nextT = 0, step = 0, name = '', paused = false, speed = 1;
+  const hashN = (a, b, c) => { const x = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return x - Math.floor(x); }, mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  function note(freq, t, dur, type, vol) {
+    try { const o = audio.createOscillator(), g = audio.createGain(); o.type = type; o.frequency.setValueAtTime(freq, t); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + dur + 0.02); } catch (_) { /* 소리가 안 나도 게임은 계속 */ }
+  }
+  function playStep(i, t) {
+    const bar = Math.floor(i / 8), pos = i % 8, deg = cur.prog[bar % cur.prog.length], sc = SCALES[cur.scale], len = 30 / (cur.bpm * speed);
+    const at = (d, oct) => cur.root + sc[((d % sc.length) + sc.length) % sc.length] + 12 * (Math.floor(d / sc.length) + oct);
+    if (cur.bounce) { if (pos % 2 === 0) note(mtof(at(deg, -2) + (pos % 4 === 2 ? 7 : 0)), t, len * 1.1, 'triangle', 0.026); }          // 통통 튀는 베이스(마리오 풍)
+    else if (pos === 0 || pos === 4 || (cur.drive && pos % 2 === 0)) note(mtof(at(deg, -2)), t, len * 1.8, 'triangle', 0.026);
+    const phrase = bar % 4 + (Math.floor(bar / 4) % 2) * 4;
+    if (hashN(cur.seed, phrase, pos) > cur.rest) note(mtof(at(deg + Math.floor(hashN(cur.seed + 1, phrase, pos) * 5) - 1, 0)), t, len * 0.9, cur.lead, 0.014);
+    if (pos % 2 === 1 && cur.drive) note(mtof(at(deg, 1)), t, len * 0.4, 'square', 0.007);
+  }
+  function schedule() {
+    if (muted || !cur || paused || !audio) return; const now = audio.currentTime; if (nextT < now) nextT = now + 0.05;
+    while (nextT < now + 0.5) { playStep(step, nextT); nextT += 30 / (cur.bpm * speed); step++; }
+  }
+  return {
+    play(n, sp = 1) { if (TUTORIAL) return; speed = sp; if (name === n && timer) { paused = false; return; } name = n; cur = TUNES[n] || TUNES.grass; step = 0; nextT = 0; paused = false; try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (_) { return; } clearInterval(timer); timer = setInterval(schedule, 120); schedule(); },
+    speedUp(sp) { speed = sp; },                                                                  // 시간이 얼마 안 남으면 곡이 빨라진다
+    stop() { clearInterval(timer); timer = null; name = ''; cur = null; },
+    suspend() { paused = true; }, resume() { if (cur) { paused = false; nextT = 0; } },
+    get name() { return name; },
+  };
+})();
+// 지금 코스의 곡 이름: 쿠파 성은 보스 곡, 나머지는 테마 이름
+const stageTune = () => (G && G.level.boss ? 'bowser' : (G && G.level.theme) || 'grass');
+
 // ---------- 상태 ----------
 let G = null;
 let state = 'title';                           // title · play · paused · over
@@ -209,20 +256,21 @@ function startGame(stage = 1) {
   $('overlay').classList.add('hidden');
   announceStage();
   sfx.powerup();
+  music.play(stageTune());
 }
 const STAGE_HINT = { ice: '바닥이 미끄러워요! 미리 멈춰요', desert: '선인장에 닿으면 아파요. 뛰어서 넘어요', mushroom: '버섯 위로 올라가면 동전과 블록이 있어요', water: '점프 버튼을 누를 때마다 한 번 헤엄쳐요', ghost: '유령은 바라보면 멈춰요! 등을 돌리면 다가와요' };
 function announceStage() { showBanner(TUTORIAL ? '연습' : `${G.stage}코스 ${G.level.name}`, TUTORIAL ? '걷고 · 뛰고 · 블록을 치고 · 굼바를 밟아 보세요' : G.level.boss ? '쿠파를 지나 도끼까지! 불꽃 다섯 번이면 쓰러져요' : (STAGE_HINT[G.level.theme] || '깃대까지 달려요!'), 1.8); }
 function pause() {
   if (state !== 'play') return;
-  state = 'paused';
+  state = 'paused'; music.suspend();
   showOverlay('<h2>일시정지</h2><button data-act="resume">계속하기</button><button class="opt" data-act="padmode"></button><button class="opt" data-act="speed"></button><button class="opt" data-act="auto"></button>');
 }
-function resume() { if (state === 'paused') { state = 'play'; hideOverlay(); } }
+function resume() { if (state === 'paused') { state = 'play'; hideOverlay(); music.resume(); } }
 function showOverlay(html) { $('overlay').innerHTML = html; $('overlay').classList.remove('hidden'); applyAuto(); }
 function hideOverlay() { $('overlay').classList.add('hidden'); }
 function showBanner(text, sub = '', t = 1.4, color = '#fff') { banner = { text, sub, t, color }; }
 function gameOver() {
-  state = 'over';
+  state = 'over'; music.stop();
   const record = !TUTORIAL && G.score > best;
   if (record) { best = G.score; store.set('smBest', String(best)); }
   showOverlay(`
@@ -234,7 +282,7 @@ function gameOver() {
     <button data-act="title" class="sub">처음 화면</button>`);
 }
 function showTitle() {
-  state = 'title';
+  state = 'title'; music.stop();
   const stages = L.STAGES.map((s, i) => `<button data-stage="${i + 1}"${i + 1 > unlocked ? ' disabled' : ''}>${i + 1} ${s.name}</button>`).join('');
   $('stages').innerHTML = stages;
   showOverlay($('overlay').innerHTML);
@@ -279,20 +327,20 @@ function handle(e) {
   else if (e.t === 'powerup') sfx.powerup();
   else if (e.t === 'power') {
     if (e.type === '1up') { sfx.up1(); showBanner('1UP!', '', 1, '#7dff7d'); }
-    else if (e.type === 'star') { sfx.star(); showBanner('별 마리오!', '10초 동안 무적', 1.2, '#ffd23a'); }
+    else if (e.type === 'star') { sfx.star(); music.play('star'); showBanner('별 마리오!', '10초 동안 무적', 1.2, '#ffd23a'); }
     else { sfx.power(); showBanner(e.type === 'flower' ? '불꽃 마리오!' : '커졌다!', '', 1, '#ffd23a'); }
     tutorialSignal('power');
   }
-  else if (e.t === 'hurry') { sfx.hurry(); showBanner('서둘러!', '시간이 얼마 안 남았어요', 1.6, '#ff6a6a'); }
+  else if (e.t === 'hurry') { music.speedUp(1.35); sfx.hurry(); showBanner('서둘러!', '시간이 얼마 안 남았어요', 1.6, '#ff6a6a'); }
   else if (e.t === 'tick') sfx.count();
   else if (e.t === 'crouch') { sfx.crouch(); tutorialSignal('crouch'); }
-  else if (e.t === 'warp') { sfx.pipe(); if (e.kind === 'in') tutorialSignal('warp'); }
-  else if (e.t === 'room') showBanner('보너스 방!', '동전을 모아 오른쪽 파이프로 나가요', 2.2, '#ffd23a');
+  else if (e.t === 'warp') { sfx.pipe(); if (e.kind === 'in') tutorialSignal('warp'); else music.play(stageTune(), G.hurried ? 1.35 : 1); }
+  else if (e.t === 'room') { music.play('room'); showBanner('보너스 방!', '동전을 모아 오른쪽 파이프로 나가요', 2.2, '#ffd23a'); }
   else if (e.t === 'boom') { sfx.boom(); shakeT = 0.3; fxs.push({ kind: 'boom', x: e.x, y: e.y, t: 0, life: 0.5 }); tutorialSignal('boom'); }
   else if (e.t === 'vine') { sfx.vine(); tutorialSignal('vine'); }
   else if (e.t === 'climb') tutorialSignal('climb');
-  else if (e.t === 'sky') { sfx.powerup(); showBanner('코인 천국!', '동전을 모으고 구름 끝에서 뛰어내려요', 2.6, '#ffd23a'); tutorialSignal('sky'); }
-  else if (e.t === 'skyOut') sfx.pipe();
+  else if (e.t === 'sky') { music.play('heaven'); sfx.powerup(); showBanner('코인 천국!', '동전을 모으고 구름 끝에서 뛰어내려요', 2.6, '#ffd23a'); tutorialSignal('sky'); }
+  else if (e.t === 'skyOut') { sfx.pipe(); music.play(stageTune(), G.hurried ? 1.35 : 1); }
   else if (e.t === 'cannon') sfx.cannon();
   else if (e.t === 'hammer') sfx.hammer();
   else if (e.t === 'egg') sfx.egg();
@@ -300,24 +348,24 @@ function handle(e) {
   else if (e.t === 'spring') { sfx.spring(); bumps.push({ tx: e.tx, ty: e.ty, t: 0 }); }
   else if (e.t === 'bossFire') sfx.bossFire();
   else if (e.t === 'bossHit') sfx.bossHit();
-  else if (e.t === 'bossDead') { sfx.clear(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 1.2, text: String(e.pts), color: '#ffd23a' }); showBanner('쿠파를 쓰러뜨렸다!', '도끼를 찾아요', 1.8, '#ffd23a'); }
+  else if (e.t === 'bossDead') { music.stop(); sfx.clear(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 1.2, text: String(e.pts), color: '#ffd23a' }); showBanner('쿠파를 쓰러뜨렸다!', '도끼를 찾아요', 1.8, '#ffd23a'); }
   else if (e.t === 'bossFall') sfx.kill();
   else if (e.t === 'crumble') sfx.crumble();
-  else if (e.t === 'axe') { sfx.flag(); showBanner('다리가 무너진다!', e.bonus ? `시간 +${e.bonus}` : '', 3, '#7dff7d'); }
+  else if (e.t === 'axe') { music.stop(); sfx.flag(); showBanner('다리가 무너진다!', e.bonus ? `시간 +${e.bonus}` : '', 3, '#7dff7d'); }
   else if (e.t === 'firework') { sfx.firework(); fxs.push({ kind: 'firework', x: e.x, y: e.y, t: 0, life: 0.7, color: ['#ffd23a', '#ff6a8a', '#7dff7d', '#6ac8ff'][Math.floor(clock * 7) % 4] }); }
-  else if (e.t === 'starEnd') sfx.shrink();
+  else if (e.t === 'starEnd') { sfx.shrink(); music.play(stageTune(), G.hurried ? 1.35 : 1); }
   else if (e.t === 'shrink') sfx.shrink();
   else if (e.t === 'stomp') { sfx.stomp(); tutorialSignal('stomp'); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#fff' }); }
   else if (e.t === 'kick') sfx.kick();
   else if (e.t === 'kill') { sfx.kill(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#ffd23a' }); }
   else if (e.t === 'fire') sfx.fire();
-  else if (e.t === 'flag') { sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
+  else if (e.t === 'flag') { music.stop(); sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
   else if (e.t === 'clear') { sfx.clear(); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
-  else if (e.t === 'stage' && G.time > 0.2) { announceStage(); }
-  else if (e.t === 'dead') { sfx.dead(); showBanner(e.why === 'time' ? '시간 초과!' : '앗!', '', 1.6, '#ff6a6a'); }
-  else if (e.t === 'respawn') announceStage();
+  else if (e.t === 'stage' && G.time > 0.2) { announceStage(); music.play(stageTune()); }
+  else if (e.t === 'dead') { music.stop(); sfx.dead(); showBanner(e.why === 'time' ? '시간 초과!' : '앗!', '', 1.6, '#ff6a6a'); }
+  else if (e.t === 'respawn') { announceStage(); music.play(stageTune()); }
   else if (e.t === 'extra') { sfx.up1(); showBanner('1UP!', '목숨 +1', 1.2, '#7dff7d'); }
-  else if (e.t === 'over') { sfx.over(); setTimeout(gameOver, e.won ? 200 : 500); }
+  else if (e.t === 'over') { music.stop(); sfx.over(); setTimeout(gameOver, e.won ? 200 : 500); }
 }
 
 // ---------- 그리기 ----------
