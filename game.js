@@ -365,7 +365,7 @@ function handle(e) {
   else if (e.t === 'dead') { music.stop(); sfx.dead(); showBanner(e.why === 'time' ? '시간 초과!' : '앗!', '', 1.6, '#ff6a6a'); }
   else if (e.t === 'respawn') { announceStage(); music.play(stageTune()); }
   else if (e.t === 'extra') { sfx.up1(); showBanner('1UP!', '목숨 +1', 1.2, '#7dff7d'); }
-  else if (e.t === 'over') { music.stop(); sfx.over(); setTimeout(gameOver, e.won ? 200 : 500); }
+  else if (e.t === 'over') { music.stop(); if (!e.won) sfx.over(); setTimeout(gameOver, e.won ? 200 : 500); }
 }
 
 // ---------- 그리기 ----------
