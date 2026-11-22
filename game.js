@@ -91,6 +91,7 @@ const sfx = {
   splash: () => { tone(900, 0.22, 'sine', 0.04, -600); setTimeout(() => tone(500, 0.18, 'sine', 0.035, 300), 90); setTimeout(() => tone(700, 0.12, 'sine', 0.025, -300), 190); },
   swim: () => tone(260, 0.16, 'sine', 0.045, 340),
   slide: () => tone(1500 + Math.random() * 300, 0.07, 'sawtooth', 0.012, -700),
+  mid: () => melody([523, 784, 1047, 1319], 70, 'triangle', 0.05),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
 
@@ -367,6 +368,7 @@ function handle(e) {
   else if (e.t === 'kick') sfx.kick();
   else if (e.t === 'kill') { sfx.kill(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#ffd23a' }); }
   else if (e.t === 'fire') sfx.fire();
+  else if (e.t === 'mid') { sfx.mid(); showBanner('중간 지점!', '죽어도 여기서 다시 시작해요', 1.6, '#7dff7d'); }
   else if (e.t === 'flag') { music.stop(); sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
   else if (e.t === 'clear') { sfx.clear(); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
   else if (e.t === 'stage' && G.time > 0.2) { announceStage(); music.play(stageTune()); }
@@ -509,6 +511,15 @@ function drawTiles(th) {
     const b = bumps.find((q) => q.tx === tx && q.ty === ty);
     if (b) dy = -Math.sin((b.t / 0.2) * Math.PI) * 5;
     drawTile(ch, tx * T - Math.round(G.camX), HUD + ty * T + dy, th, tx, ty);
+  }
+  // 중간 지점 깃발: 지나가기 전에는 흰 깃발이 낮게, 지나가면 초록 깃발이 꼭대기로 올라간다
+  if (!G.inRoom && G.level.mid !== undefined && !G.tutorial) {
+    const mx = G.level.mid * T + 6 - Math.round(G.camX), top = HUD + GROUND * T - 40;
+    if (mx > -20 && mx < VW + 20) {
+      RC(mx, top, 2, 40, '#c8c8d0'); RC(mx - 1, top - 2, 4, 4, '#e8e8f0');
+      ctx.fillStyle = G.midReached ? '#2cd02c' : '#f4f4f4'; const fy2 = G.midReached ? top + 2 : top + 24;
+      ctx.beginPath(); ctx.moveTo(mx + 2, fy2); ctx.lineTo(mx + 14, fy2 + 5); ctx.lineTo(mx + 2, fy2 + 10); ctx.fill();
+    }
   }
   // 깃발 (깃대 꼭대기 옆에서, 마리오가 잡으면 같이 내려온다)와 성
   const fx = G.level.flag * T - Math.round(G.camX);

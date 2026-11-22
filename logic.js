@@ -70,7 +70,8 @@ const LOGIC_SM = (() => {
     startStage(st, stage);
     return st;
   }
-  function startStage(st, stage) {
+  function startStage(st, stage, fromMid) {
+    if (!fromMid) st.midReached = false;                 // 중간 지점은 코스마다 새로(죽어서 다시 시작할 때만 이어진다)
     st.stage = stage;
     const lv = STAGES[stage - 1];
     st.level = lv; st.w = lv.w;
@@ -88,7 +89,8 @@ const LOGIC_SM = (() => {
     st.boss = lv.boss ? { x: lv.boss.x * T, y: GROUND * T - BOSS.h, w: BOSS.w, h: BOSS.h, vx: -BOSS.speed, vy: 0, hp: BOSS.hp, face: -1, min: lv.boss.min * T, max: lv.boss.max * T, dirT: 1, jumpT: 2, fireT: 2.5, flash: 0, state: 'alive', active: false } : null;
     st.plants = lv.plants.map((p, i) => ({ id: 500 + i, x: p.x * T + 10, w: PLANT.w, h: PLANT.h, topY: p.topY, pipeX: p.x * T + T, state: 'down', timer: i * 0.7, extent: 0, y: p.topY, dead: false }));
     st.items = []; st.fireballs = []; st.coinBlocks = {}; st.seq = 1000;
-    st.m = makeMario(st, lv.start * T, 'small');
+    st.m = makeMario(st, (fromMid && lv.mid !== undefined ? lv.mid : lv.start) * T, 'small');
+    if (fromMid && lv.mid !== undefined) st.camX = Math.max(0, Math.min(st.w * T - VW, st.m.x - 96));
     st.stompChain = 0; st.starChain = 0; st.flagY = 2 * T; st.clearPhase = '';
     st.inRoom = false; st.surface = null; st.warp = null;
     st.phase = 'play';
@@ -793,7 +795,7 @@ const LOGIC_SM = (() => {
       m.vy = Math.min(MAXFALL + 100, m.vy + 1000 * h); m.y += m.vy * h;
       if (st.dyingT <= 0) {
         if (st.lives <= 0) { st.phase = 'over'; emit(st, { t: 'over' }); }
-        else { startStage(st, st.stage); emit(st, { t: 'respawn' }); }
+        else { startStage(st, st.stage, !!st.midReached); emit(st, { t: 'respawn', mid: !!st.midReached }); }
       }
       return;
     }
@@ -814,6 +816,7 @@ const LOGIC_SM = (() => {
     if (input.down && m.onGround && !m.dead) { const w = warpAt(st); if (w) { startWarp(st, 'in', w); return; } }     // 파이프 위에서 ↓
     if (st.inRoom && st.roomKind !== 'sky' && input.right && m.onGround && tileAt(st, Math.floor((m.x + m.w) / T), Math.floor((m.y + m.h - 1) / T)) === 'E') { leaveRoom(st); return; }
     st.camX = Math.max(st.camX, Math.min(st.w * T - VW, m.x - 96));
+    if (out && !st.midReached && st.level.mid !== undefined && !st.tutorial && m.x >= st.level.mid * T) { st.midReached = true; emit(st, { t: 'mid', x: st.level.mid * T }); }
     if (out) { stepCannons(st, h); stepBars(st, h); stepBoss(st, h); stepHazards(st, h); stepHammers(st, h); stepCheeps(st, h); }
     stepEnemies(st, h);
     stepPlants(st, h);

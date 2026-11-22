@@ -1425,3 +1425,53 @@ test('stages: the new enemies and terrain are placed where they make sense', () 
   for (const s of L.STAGES) for (const e of s.spawns) assert.ok(L.ENEMY[e.type], 'known enemy ' + e.type);
   assert.strictEqual(L.SKY.tiles.flat().filter((c) => c === 'C').length, L.SKY.coins);
 });
+
+// ---------- 중간 지점 ----------
+test('every stage with a flag has a midway point on safe flat ground near the middle', () => {
+  for (const [i, s] of L.STAGES.entries()) {
+    if (s.flag === undefined) { assert.strictEqual(s.mid, undefined); continue; }
+    assert.ok(s.mid !== undefined, `stage ${i + 1} has a midway point`);
+    assert.ok(s.mid >= s.flag * 0.2 && s.mid <= s.flag * 0.8, `stage ${i + 1} midway at ${s.mid} of ${s.flag}`);
+    for (let d = -2; d <= 2; d++) assert.ok(s.tiles[GROUND][s.mid + d] !== '.', `ground under midway of stage ${i + 1}`);
+    for (const e of s.spawns) assert.ok(Math.abs(e.x - s.mid) > 1, `no enemy on top of the midway of stage ${i + 1}`);
+  }
+});
+
+test('passing the midway point fires one event, and dying afterwards restarts there with full time', () => {
+  const st = L.newGame(L.rng(1), 1);
+  const mx = st.level.mid * T;
+  st.m.x = mx - 40; st.m.vx = 0;
+  for (let i = 0; i < 20; i++) L.step(st, 0.02, { right: true });
+  assert.ok(!st.midReached || st.m.x >= mx);
+  st.m.x = mx + 4; L.step(st, 0.02, {});
+  assert.strictEqual(st.midReached, true);
+  assert.strictEqual(evs(st, 'mid').length, 1, 'one event');
+  L.step(st, 0.02, {}); assert.strictEqual(evs(st, 'mid').length, 0, 'not again');
+  const lives = st.lives; st.timeLeft = 123;
+  L.step(st, 0.02, {}); st.m.y = 9999; st.phase = 'play'; st.m.dead = false;       // 구멍에 빠진 것처럼
+  for (let i = 0; i < 400 && st.lives === lives; i++) L.step(st, 0.02, {});
+  for (let i = 0; i < 200 && !evs(st, 'respawn').length; i++) L.step(st, 0.02, {});
+  assert.strictEqual(st.lives, lives - 1);
+  assert.ok(Math.abs(st.m.x - mx) < T, 'respawned at the midway point');
+  assert.ok(st.camX > 0 && st.camX <= st.m.x, 'camera is there too');
+  assert.ok(st.timeLeft > 300, 'time is reset');
+  assert.strictEqual(st.m.size, 'small');
+  assert.strictEqual(st.midReached, true, 'it stays reached');
+});
+
+test('dying before the midway point restarts at the beginning, and the next stage starts without it', () => {
+  const st = L.newGame(L.rng(1), 1);
+  st.m.y = 9999; L.step(st, 0.02, {});
+  for (let i = 0; i < 400 && !evs(st, 'respawn').length; i++) L.step(st, 0.02, {});
+  assert.ok(st.m.x < 5 * T, 'back at the start');
+  st.midReached = true; st.timeLeft = 400;
+  const n = L.newGame(L.rng(1), 2); assert.ok(!n.midReached);
+  L.step(st, 0.02, {}); const lv2 = L.STAGES[1];
+  assert.ok(lv2.mid > 0);
+});
+
+test('the tutorial has no midway point effect', () => {
+  const st = L.newGame(L.rng(1), 1, { tutorial: true });
+  st.m.x = st.level.mid * T + 4; L.step(st, 0.02, {});
+  assert.ok(!st.midReached);
+});

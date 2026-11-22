@@ -37,8 +37,20 @@ const LEVELS_SM = (() => {
     const plants = (spec.piranhas || []).map((px) => { const p = spec.pipes.find((q) => q.x === px); return { x: px, topY: (GROUND - p.h) * T }; });
     const topOf = (px) => (GROUND - spec.pipes.find((q) => q.x === px).h) * T;
     const warps = (spec.warps || []).map(([x, ex]) => ({ x, topY: topOf(x), exitX: ex, exitTopY: topOf(ex) }));
+    // 중간 지점: 깃대까지의 반쯤에서 가까운 '평평하고 안전한 땅'(양옆 두 칸까지 땅이고 위가 비어 있고, 적·대포·파이프·발판이 가까이 없는 곳)
+    let mid;
+    if (fx !== undefined) {
+      const near = (arr, lo, hi) => arr.some((v) => v >= lo && v <= hi);
+      const spawnX = (spec.enemies || []).map((e) => e.x), pipeX = (spec.pipes || []).map((q) => q.x), cannonX = (spec.cannons || []).map((c) => c[0]), liftX = (spec.lifts || []).map((l) => l.x / T), barX = (spec.bars || []).map((b) => b.x);
+      const good = (c) => {
+        for (let d = -2; d <= 2; d++) { if (tiles[GROUND][c + d] === undefined || tiles[GROUND][c + d] === '.') return false; for (let y = GROUND - 3; y < GROUND; y++) if (!'.C'.includes(tiles[y][c + d])) return false; }
+        return !near(spawnX, c - 1, c + 4) && !near(pipeX, c - 3, c + 4) && !near(cannonX, c - 3, c + 3) && !near(liftX, c - 4, c + 4) && !near(barX, c - 3, c + 3);
+      };
+      const want = Math.round(fx * 0.5);
+      for (let d = 0; d < fx * 0.4 && mid === undefined; d++) { if (good(want + d)) mid = want + d; else if (good(want - d)) mid = want - d; }       // 반쯤에서 가까운 곳(40% 안쪽)
+    }
     return {
-      name: spec.name, theme: spec.theme, w, tiles, spawns: spec.enemies.map((e) => ({ ...e })), plants, warps, time: spec.time, flag: fx, ground: spec.ground, start: spec.start || 2,
+      mid, name: spec.name, theme: spec.theme, w, tiles, spawns: spec.enemies.map((e) => ({ ...e })), plants, warps, time: spec.time, flag: fx, ground: spec.ground, start: spec.start || 2,
       cannons: (spec.cannons || []).map(([x, y]) => ({ x: x * T, y: y * T })),
       bars: (spec.bars || []).map((b) => ({ cx: b.x * T + T / 2, cy: b.y * T + T / 2, len: b.len, spd: b.spd, ang: b.ang || 0 })),
       lifts: (spec.lifts || []).map((l) => ({ ...l })),
