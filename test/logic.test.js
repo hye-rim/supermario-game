@@ -1513,3 +1513,39 @@ test('big coins reset when the next stage begins, and do not exist in the tutori
   const b = t.level.bigs[0]; t.m.x = b.x * T + 2; t.m.y = b.y * T - 2; L.step(t, 0.01, {});
   assert.deepStrictEqual(t.bigGot, [false, false, false]);
 });
+
+// ---------- 코스별 최고 기록 ----------
+test('merging stage records keeps the higher score and the shorter time independently', () => {
+  let r = L.mergeRecord(undefined, 12345, 61.234);
+  assert.deepStrictEqual(r.rec, { score: 12345, time: 61.2 }); assert.ok(r.newScore && r.newTime);
+  r = L.mergeRecord(r.rec, 9000, 50.04);
+  assert.deepStrictEqual(r.rec, { score: 12345, time: 50 }); assert.ok(!r.newScore && r.newTime);
+  r = L.mergeRecord(r.rec, 20000, 70);
+  assert.deepStrictEqual(r.rec, { score: 20000, time: 50 }); assert.ok(r.newScore && !r.newTime);
+  r = L.mergeRecord(r.rec, 20000, 50);
+  assert.ok(!r.newScore && !r.newTime, 'a tie is not a new record');
+});
+
+test('reaching the flag records how many real seconds the attempt took, and the stage score starts at the stage start', () => {
+  const st = L.newGame(L.rng(1), 1);
+  assert.strictEqual(st.stageScore0, 0);
+  run(st, 5, {});
+  st.m.x = st.level.flag * T - 6; st.m.y = 5 * T; st.m.vy = 0;
+  for (let i = 0; i < 20 && !evs(st, 'flag').length; i++) L.step(st, 0.02, {});
+  const f = evs(st, 'flag')[0];
+  assert.ok(f, 'flag event'); assert.ok(Math.abs(f.sec - 5) < 0.3, `about five seconds (${f.sec})`);
+  assert.strictEqual(st.finishSec, f.sec);
+});
+
+test('the clear event carries the stage number, the stage score and the finish time (the game has already moved on to the next stage)', () => {
+  const st = L.newGame(L.rng(1), 1);
+  run(st, 2, {});
+  st.m.x = st.level.flag * T - 6; st.m.y = 5 * T; st.m.vy = 0;
+  let c = null;
+  for (let i = 0; i < 6000 && !c; i++) { L.step(st, 0.02, {}); c = evs(st, 'clear')[0]; }
+  assert.ok(c, 'clear event');
+  assert.strictEqual(c.stage, 1); assert.strictEqual(st.stage, 2);
+  assert.ok(c.score > 0, 'the flag and time bonus count');
+  assert.ok(c.sec > 1 && c.sec < 4, `finish time (${c.sec})`);
+  assert.strictEqual(st.stageScore0, st.score, 'the next stage starts counting from here');
+});

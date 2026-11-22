@@ -65,6 +65,12 @@ const LOGIC_SM = (() => {
   const emit = (st, e) => { st.events.push(e); };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+  // 코스별 최고 기록 합치기: 점수는 높을수록, 시간은 짧을수록 좋다. 반환: { rec: 새 기록, newScore, newTime }
+  function mergeRecord(prev, score, sec) {
+    const p = prev || {}, s = Math.max(0, Math.round(score)), t = Math.round(sec * 10) / 10;
+    const newScore = p.score === undefined || s > p.score, newTime = p.time === undefined || t < p.time;
+    return { rec: { score: newScore ? s : p.score, time: newTime ? t : p.time }, newScore, newTime };
+  }
   function newGame(rand = Math.random, stage = 1, opts = {}) {
     const st = { rand, score: 0, coins: 0, lives: opts.lives || START_LIVES, extra: 0, stage, time: 0, events: [], phase: 'play', tutorial: !!opts.tutorial, won: false, stats: { stomps: 0, bricks: 0, coinsTotal: 0 } };
     startStage(st, stage);
@@ -72,7 +78,7 @@ const LOGIC_SM = (() => {
   }
   function startStage(st, stage, fromMid) {
     if (!fromMid) st.midReached = false;                 // 중간 지점은 코스마다 새로(죽어서 다시 시작할 때만 이어진다)
-    if (st.bigStage !== stage) { st.bigStage = stage; st.bigGot = [false, false, false]; }          // 큰 동전은 죽어서 다시 시작해도 먹은 채로 있다
+    if (st.bigStage !== stage) { st.bigStage = stage; st.bigGot = [false, false, false]; st.stageScore0 = st.score; }          // 큰 동전은 죽어서 다시 시작해도 먹은 채로 있다
     st.stage = stage;
     const lv = STAGES[stage - 1];
     st.level = lv; st.w = lv.w;
@@ -682,7 +688,8 @@ const LOGIC_SM = (() => {
     st.phase = 'clear'; st.clearPhase = 'slide'; st.clearT = 0; st.flagPts = pts; st.bonus = st.tutorial ? 0 : Math.floor(st.timeLeft) * POINTS.timePerUnit;
     m.vx = 0; m.vy = 0; m.star = 0; m.x = st.level.flag * T + 7 - m.w; m.face = 1;
     st.countAcc = 0; st.fw = st.tutorial ? 0 : (FIREWORK_DIGITS[Math.floor(st.timeLeft) % 10] || 0); st.fwDone = 0;       // 남은 시간 끝자리가 1·3·6 이면 불꽃놀이
-    emit(st, { t: 'flag', pts, bonus: st.bonus });
+    st.finishSec = (st.level.time - st.timeLeft) / TIME_RATE;                // 이 시도에서 깃대까지 걸린 실제 초
+    emit(st, { t: 'flag', pts, bonus: st.bonus, sec: st.finishSec });
     if (st.stage >= STAGES.length) st.won = true;
   }
   // 도끼를 건드렸다: 다리가 끝에서부터 무너지고 쿠파가 용암으로 떨어진다 → 남은 시간 정산 → 끝
@@ -692,7 +699,8 @@ const LOGIC_SM = (() => {
     st.bonus = st.tutorial ? 0 : Math.floor(st.timeLeft) * POINTS.timePerUnit;
     m.vx = 0; m.vy = 0; m.star = 0; st.won = true; st.countAcc = 0;
     st.hazards = [];
-    emit(st, { t: 'axe', bonus: st.bonus });
+    st.finishSec = (st.level.time - st.timeLeft) / TIME_RATE;
+    emit(st, { t: 'axe', bonus: st.bonus, sec: st.finishSec });
   }
   function afterCount(st) { st.clearPhase = st.fw > 0 ? 'fireworks' : 'wait'; st.clearT = 0; }
   function stepClear(st, h) {
@@ -732,7 +740,7 @@ const LOGIC_SM = (() => {
       if (st.fwDone >= st.fw && st.clearT >= st.fw * FIREWORK_GAP + 0.4) { st.clearPhase = 'wait'; st.clearT = 0; }
     } else if (st.clearPhase === 'wait') {
       if (st.clearT >= FLAG.wait) {
-        emit(st, { t: 'clear', stage: st.stage });
+        emit(st, { t: 'clear', stage: st.stage, score: st.score - st.stageScore0, sec: st.finishSec });
         if (st.won) { st.phase = 'over'; emit(st, { t: 'win' }); emit(st, { t: 'over', won: true }); }
         else startStage(st, st.stage + 1);
       }
@@ -832,7 +840,7 @@ const LOGIC_SM = (() => {
   return {
     T, ROWS, GROUND, VW, VH, STAGES, SOLID, WALK, RUN, ACC_WALK, ACC_RUN, DECEL, SKID, JUMP_SLOW, JUMP_FAST, G_HOLD_SLOW, G_HOLD_FAST, G_FALL, MAXFALL, SIZE, START_LIVES, DYING, INVULN, STAR_TIME,
     ICE_FR, ICE_STOP, SWIM_V, SWIM_G, SWIM_FALL, SWIM_STROKE, BOO, TIME_RATE, HURRY_AT, COUNT_RATE, POINTS, STOMP_CHAIN, SHELL_CHAIN, ENEMY, SHELL_SPEED, SHELL_REVIVE, COIN_BLOCK_MAX, COIN_BLOCK_TIME, PLANT, FLAG, EXTRA_LIFE_COINS, EXTRA_LIFE_AT,
-    CROUCH_H, WARP_TIME, ROOM, SKY, BOSS, BOBOMB, PARA, BLOOPER, BELT_V, VINE_H, VINE_SPEED, HAMMER, LAKITU_POINTS, CANNON_EVERY, SPRING_HOLD, SPRING_TAP, FIREWORK_PTS, barSegments,
+    CROUCH_H, WARP_TIME, ROOM, SKY, BOSS, BOBOMB, PARA, BLOOPER, BELT_V, VINE_H, VINE_SPEED, HAMMER, LAKITU_POINTS, CANNON_EVERY, SPRING_HOLD, SPRING_TAP, FIREWORK_PTS, barSegments, mergeRecord,
     rng, newGame, startStage, step, tileAt, solid, hitBlock, hurt, die, setSize, addScore, makeEnemy, overlap, setCrouch, canStand, warpAt,
   };
 })();

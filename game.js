@@ -149,6 +149,7 @@ let state = 'title';                           // title · play · paused · ove
 let best = Number(store.get('smBest')) || 0;
 // 코스마다 가장 많이 모은 큰 동전 수 (코스를 끝까지 깼을 때 기록)
 let bigBest = (() => { try { const o = JSON.parse(store.get('smBig') || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } })();
+let records = (() => { try { const o = JSON.parse(store.get('smRec') || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } })();      // 코스별 최고 점수·최단 시간
 const bigText = (n) => '●'.repeat(n) + '○'.repeat(3 - n);
 function saveBigs() {
   if (!G || TUTORIAL) return;
@@ -298,7 +299,7 @@ function gameOver() {
 }
 function showTitle() {
   state = 'title'; music.stop();
-  const stages = L.STAGES.map((s, i) => `<button data-stage="${i + 1}"${i + 1 > unlocked ? ' disabled' : ''}>${i + 1} ${s.name}${s.flag !== undefined ? `<br><small>${bigText(bigBest[i + 1] || 0)}</small>` : ''}</button>`).join('');
+  const stages = L.STAGES.map((s, i) => `<button data-stage="${i + 1}"${i + 1 > unlocked ? ' disabled' : ''}>${i + 1} ${s.name}${s.flag !== undefined ? `<br><small>${bigText(bigBest[i + 1] || 0)}</small>` : ''}${records[i + 1] ? `<br><small>${records[i + 1].time}초 · ${records[i + 1].score.toLocaleString('ko-KR')}점</small>` : ''}</button>`).join('');
   $('stages').innerHTML = stages;
   showOverlay($('overlay').innerHTML);
 }
@@ -379,8 +380,8 @@ function handle(e) {
   else if (e.t === 'fire') sfx.fire();
   else if (e.t === 'big') { sfx.big(e.n); fxs.push({ kind: 'text', x: e.x, y: e.y - 6, t: 0, life: 1, text: '1000', color: '#ffd23a' }); showBanner(`큰 동전 ${e.n}/3`, e.n >= 3 ? '모두 모았어요!' : '', e.n >= 3 ? 1.6 : 0.9, '#ffd23a'); }
   else if (e.t === 'mid') { sfx.mid(); showBanner('중간 지점!', '죽어도 여기서 다시 시작해요', 1.6, '#7dff7d'); }
-  else if (e.t === 'flag') { saveBigs(); music.stop(); sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
-  else if (e.t === 'clear') { sfx.clear(); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
+  else if (e.t === 'flag') { saveBigs(); music.stop(); sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''} · ${e.sec.toFixed(1)}초${!TUTORIAL && (!records[G.stage] || e.sec < records[G.stage].time) ? ' · 최단 기록!' : ''}`, 3, '#7dff7d'); }
+  else if (e.t === 'clear') { if (!TUTORIAL && e.sec !== undefined) { const r = L.mergeRecord(records[e.stage], e.score, e.sec); records[e.stage] = r.rec; store.set('smRec', JSON.stringify(records)); } sfx.clear(); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
   else if (e.t === 'stage' && G.time > 0.2) { announceStage(); music.play(stageTune()); }
   else if (e.t === 'dead') { music.stop(); sfx.dead(); showBanner(e.why === 'time' ? '시간 초과!' : '앗!', '', 1.6, '#ff6a6a'); }
   else if (e.t === 'respawn') { announceStage(); music.play(stageTune()); }
