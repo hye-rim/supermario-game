@@ -49,8 +49,27 @@ const LEVELS_SM = (() => {
       const want = Math.round(fx * 0.5);
       for (let d = 0; d < fx * 0.4 && mid === undefined; d++) { if (good(want + d)) mid = want + d; else if (good(want - d)) mid = want - d; }       // 반쯤에서 가까운 곳(40% 안쪽)
     }
+    // 큰 동전 3개: 갈수록 어려운 자리 — ① 앞쪽 땅 위 높이 ② 구멍 위(없으면 더 높이) ③ 뒤쪽의 가장 높은 블록 위 (칸 좌표, 가운데)
+    const bigs = [];
+    if (fx !== undefined) {
+      const free = (c, r) => r >= 1 && r < GROUND && c >= 2 && c < fx - 4 && '.C'.includes(tiles[r][c]) && !bigs.some((b) => Math.abs(b.x - c) < 6);
+      const groundAt = (c) => tiles[GROUND][c] !== undefined && tiles[GROUND][c] !== '.';
+      const find = (from, row, ok) => { for (let d = 0; d < fx * 0.3; d++) for (const c of [from + d, from - d]) if (free(c, row) && ok(c)) return c; return -1; };
+      const stand = (c) => groundAt(c) && groundAt(c - 1) && groundAt(c + 1);
+      let c1 = find(Math.round(fx * 0.28), GROUND - 4, stand); if (c1 >= 0) bigs.push({ x: c1, y: GROUND - 4 });
+      // ② 구멍 위: 가운데에 놓는다
+      let c2 = -1;
+      for (let c = Math.round(fx * 0.45); c < fx * 0.8 && c2 < 0; c++) if (!groundAt(c) && !groundAt(c - 1)) { let e = c; while (!groundAt(e + 1) && e < fx) e++; if (e - c >= 1 && e - c <= 6) c2 = Math.round((c + e) / 2) - 1; }
+      if (c2 >= 0 && free(c2, GROUND - 4)) bigs.push({ x: c2, y: GROUND - 4 });
+      else { c2 = find(Math.round(fx * 0.55), GROUND - 5, stand); if (c2 >= 0) bigs.push({ x: c2, y: GROUND - 5 }); }
+      // ③ 뒤쪽(60~95%)에서 가장 높은 블록 두 칸 위
+      let best = null;
+      for (let y = GROUND - 5; y <= GROUND - 4; y++) for (let c = Math.round(fx * 0.6); c < fx * 0.95; c++) if ('B?M$*1V'.includes(tiles[y][c]) && free(c, y - 2) && free(c, y - 1) && !best) best = { x: c, y: y - 2 };
+      if (best) bigs.push(best);
+      else { const c3 = find(Math.round(fx * 0.85), GROUND - 5, stand); if (c3 >= 0) bigs.push({ x: c3, y: GROUND - 5 }); }
+    }
     return {
-      mid, name: spec.name, theme: spec.theme, w, tiles, spawns: spec.enemies.map((e) => ({ ...e })), plants, warps, time: spec.time, flag: fx, ground: spec.ground, start: spec.start || 2,
+      bigs, mid, name: spec.name, theme: spec.theme, w, tiles, spawns: spec.enemies.map((e) => ({ ...e })), plants, warps, time: spec.time, flag: fx, ground: spec.ground, start: spec.start || 2,
       cannons: (spec.cannons || []).map(([x, y]) => ({ x: x * T, y: y * T })),
       bars: (spec.bars || []).map((b) => ({ cx: b.x * T + T / 2, cy: b.y * T + T / 2, len: b.len, spd: b.spd, ang: b.ang || 0 })),
       lifts: (spec.lifts || []).map((l) => ({ ...l })),

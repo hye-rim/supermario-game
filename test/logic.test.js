@@ -1475,3 +1475,41 @@ test('the tutorial has no midway point effect', () => {
   st.m.x = st.level.mid * T + 4; L.step(st, 0.02, {});
   assert.ok(!st.midReached);
 });
+
+// ---------- 큰 동전 ----------
+test('every stage with a flag has three big coins in free spots, and the boss stage has none', () => {
+  for (const [i, s] of L.STAGES.entries()) {
+    if (s.flag === undefined) { assert.strictEqual(s.bigs.length, 0); continue; }
+    assert.strictEqual(s.bigs.length, 3, `stage ${i + 1} has three big coins`);
+    for (const b of s.bigs) {
+      assert.ok(b.x >= 2 && b.x < s.flag - 4 && b.y >= 1 && b.y < GROUND, `stage ${i + 1} coin inside the course`);
+      assert.ok('.C'.includes(s.tiles[b.y][b.x]), `stage ${i + 1} coin is not inside a block`);
+    }
+    for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) assert.ok(Math.abs(s.bigs[a].x - s.bigs[b].x) >= 6, `stage ${i + 1} coins are spread out`);
+  }
+});
+
+test('touching a big coin collects it once for 1000 points, and it stays collected after dying', () => {
+  const st = L.newGame(L.rng(1), 1);
+  const b = st.level.bigs[0], score0 = st.score;
+  st.m.x = b.x * T + 2; st.m.y = b.y * T - 2; st.m.vy = 0;
+  L.step(st, 0.01, {});
+  assert.deepStrictEqual(st.bigGot, [true, false, false]);
+  assert.strictEqual(evs(st, 'big').length, 1);
+  assert.strictEqual(evs(st, 'big')[0].n, 1);
+  assert.ok(st.score >= score0 + 1000);
+  st.m.x = b.x * T + 2; st.m.y = b.y * T - 2; L.step(st, 0.01, {});
+  assert.strictEqual(evs(st, 'big').length, 0, 'not twice');
+  st.m.y = 9999; L.step(st, 0.02, {});
+  for (let i = 0; i < 400 && !evs(st, 'respawn').length; i++) L.step(st, 0.02, {});
+  assert.deepStrictEqual(st.bigGot, [true, false, false], 'still collected after respawn');
+});
+
+test('big coins reset when the next stage begins, and do not exist in the tutorial', () => {
+  const st = L.newGame(L.rng(1), 1);
+  st.bigGot = [true, true, true];
+  const n = L.newGame(L.rng(1), 2); assert.deepStrictEqual(n.bigGot, [false, false, false]);
+  const t = L.newGame(L.rng(1), 1, { tutorial: true });
+  const b = t.level.bigs[0]; t.m.x = b.x * T + 2; t.m.y = b.y * T - 2; L.step(t, 0.01, {});
+  assert.deepStrictEqual(t.bigGot, [false, false, false]);
+});

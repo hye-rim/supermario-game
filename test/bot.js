@@ -19,6 +19,7 @@ function clone(v, memo = new Map()) {
 }
 
 const DT = 1 / 60;
+let hunt = false;                                          // true 면 큰 동전 쪽으로 다가가는 것도 점수로 친다(동전을 일부러 먹으러 감)
 const H = 45;                                               // 미리 돌려 보는 프레임 수
 const PLANS = [
   { name: 'run', steer: 1, jump: false, hold: 0 },
@@ -36,7 +37,7 @@ const PLANS = [
   { name: 'back', steer: -1, jump: false, hold: 0 },
   { name: 'back-big', steer: -1, jump: true, hold: 40 },
 ];
-const SWIMS = [0, 6, 10, 15, 22, 34].map((k) => ({ name: 'swim' + k, steer: 1, swim: k }));
+const SWIMS = [1, 0, -1].flatMap((steer) => [0, 6, 10, 15, 22, 34].map((k) => ({ name: 'swim' + k + (steer === 1 ? '' : steer === 0 ? 'n' : 'b'), steer, swim: k })));
 
 function inputAt(plan, i, airborne, off = 0) {
   const swim = plan.swim !== undefined;
@@ -65,11 +66,15 @@ function rollout(st, plan, frames, airborne, off = 0) {
   }
   const rank = { small: 0, big: 1, fire: 2 };
   if (rank[c.m.size] < rank[size0]) hurt = true;
-  return { score: c.m.x - (hurt ? 5000 : 0) + (c.m.onGround ? 3 : 0), x: c.m.x };
+  const bigs = c.bigGot.filter(Boolean).length - st.bigGot.filter(Boolean).length;
+  let near = 0;
+  if (hunt) for (const [i, b] of c.level.bigs.entries()) if (!c.bigGot[i]) { const d = Math.hypot(c.m.x - (b.x * 16 + 8), c.m.y - (b.y * 16 + 8)); if (d < 160) near = Math.max(near, (160 - d) * 12); }
+  return { score: c.m.x - (hurt ? 5000 : 0) + (c.m.onGround ? 3 : 0) + bigs * 4000 + near, x: c.m.x };
 }
 
 // stage 코스를 완주해 본다. 결과: { cleared, deaths, frames, sec, x }
 function play(stage, seed = 1, opts = {}) {
+  hunt = !!opts.hunt;
   const st = L.newGame(L.rng(seed), stage, { lives: opts.lives || 99 });
   if (opts.mutate) opts.mutate(st);                          // 시험용: 코스를 일부러 바꿔 본다
   const maxF = Math.round(60 * (opts.maxSec || 200));
@@ -112,7 +117,7 @@ function play(stage, seed = 1, opts = {}) {
     }
     if (st.phase === 'over') break;
   }
-  return { cleared, deaths, frames: f, sec: Math.round(f / 60), x: Math.round(st.m.x), size: st.m.size, deathLog };
+  return { cleared, bigs: st.bigGot.filter(Boolean).length, bigGot: st.bigGot.slice(), deaths, frames: f, sec: Math.round(f / 60), x: Math.round(st.m.x), size: st.m.size, deathLog };
 }
 
 module.exports = { play, clone, rollout, PLANS };

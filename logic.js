@@ -72,6 +72,7 @@ const LOGIC_SM = (() => {
   }
   function startStage(st, stage, fromMid) {
     if (!fromMid) st.midReached = false;                 // 중간 지점은 코스마다 새로(죽어서 다시 시작할 때만 이어진다)
+    if (st.bigStage !== stage) { st.bigStage = stage; st.bigGot = [false, false, false]; }          // 큰 동전은 죽어서 다시 시작해도 먹은 채로 있다
     st.stage = stage;
     const lv = STAGES[stage - 1];
     st.level = lv; st.w = lv.w;
@@ -659,6 +660,10 @@ const LOGIC_SM = (() => {
   // ---------- 동전과 깃대 ----------
   function stepTilesTouch(st) {
     const m = st.m;
+    if (!st.inRoom && !st.tutorial) for (const [i, b] of st.level.bigs.entries()) {
+      if (st.bigGot[i]) continue;
+      if (Math.abs(m.x + m.w / 2 - (b.x * T + T / 2)) < 12 && Math.abs(m.y + m.h / 2 - (b.y * T + T / 2)) < 14 + (m.h - 14) / 2) { st.bigGot[i] = true; addScore(st, 1000); emit(st, { t: 'big', i, n: st.bigGot.filter(Boolean).length, x: b.x * T + 8, y: b.y * T + 8 }); }
+    }
     const l = Math.floor(m.x / T), r = Math.floor((m.x + m.w - 0.001) / T), t = Math.floor(m.y / T), b = Math.floor((m.y + m.h - 0.001) / T);
     for (let ty = Math.max(0, t); ty <= Math.min(ROWS - 1, b); ty++) for (let tx = l; tx <= r; tx++) {
       const ch = tileAt(st, tx, ty);

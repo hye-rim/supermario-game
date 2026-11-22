@@ -91,6 +91,7 @@ const sfx = {
   splash: () => { tone(900, 0.22, 'sine', 0.04, -600); setTimeout(() => tone(500, 0.18, 'sine', 0.035, 300), 90); setTimeout(() => tone(700, 0.12, 'sine', 0.025, -300), 190); },
   swim: () => tone(260, 0.16, 'sine', 0.045, 340),
   slide: () => tone(1500 + Math.random() * 300, 0.07, 'sawtooth', 0.012, -700),
+  big: (n) => melody([784, 1047, 1319, n >= 3 ? 1760 : 1568], 60, 'square', 0.05),
   mid: () => melody([523, 784, 1047, 1319], 70, 'triangle', 0.05),
   up1: () => melody([659, 784, 1319, 1047, 1175, 1568], 80, 'square', 0.05),
 };
@@ -146,6 +147,14 @@ const stageTune = () => (G && G.level.boss ? 'bowser' : (G && G.level.theme) || 
 let G = null;
 let state = 'title';                           // title · play · paused · over
 let best = Number(store.get('smBest')) || 0;
+// 코스마다 가장 많이 모은 큰 동전 수 (코스를 끝까지 깼을 때 기록)
+let bigBest = (() => { try { const o = JSON.parse(store.get('smBig') || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; } })();
+const bigText = (n) => '●'.repeat(n) + '○'.repeat(3 - n);
+function saveBigs() {
+  if (!G || TUTORIAL) return;
+  const n = G.bigGot.filter(Boolean).length;
+  if (n > (bigBest[G.stage] || 0)) { bigBest[G.stage] = n; store.set('smBig', JSON.stringify(bigBest)); }
+}
 let unlocked = Math.max(1, Math.min(L.STAGES.length, Number(store.get('smStage')) || 1));
 let fxs = [], bumps = [];
 let banner = { text: '', sub: '', t: 0, color: '#fff' };
@@ -289,7 +298,7 @@ function gameOver() {
 }
 function showTitle() {
   state = 'title'; music.stop();
-  const stages = L.STAGES.map((s, i) => `<button data-stage="${i + 1}"${i + 1 > unlocked ? ' disabled' : ''}>${i + 1} ${s.name}</button>`).join('');
+  const stages = L.STAGES.map((s, i) => `<button data-stage="${i + 1}"${i + 1 > unlocked ? ' disabled' : ''}>${i + 1} ${s.name}${s.flag !== undefined ? `<br><small>${bigText(bigBest[i + 1] || 0)}</small>` : ''}</button>`).join('');
   $('stages').innerHTML = stages;
   showOverlay($('overlay').innerHTML);
 }
@@ -360,7 +369,7 @@ function handle(e) {
   else if (e.t === 'bossDead') { music.stop(); sfx.clear(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 1.2, text: String(e.pts), color: '#ffd23a' }); showBanner('쿠파를 쓰러뜨렸다!', '도끼를 찾아요', 1.8, '#ffd23a'); }
   else if (e.t === 'bossFall') sfx.kill();
   else if (e.t === 'crumble') sfx.crumble();
-  else if (e.t === 'axe') { music.stop(); sfx.flag(); showBanner('다리가 무너진다!', e.bonus ? `시간 +${e.bonus}` : '', 3, '#7dff7d'); }
+  else if (e.t === 'axe') { saveBigs(); music.stop(); sfx.flag(); showBanner('다리가 무너진다!', e.bonus ? `시간 +${e.bonus}` : '', 3, '#7dff7d'); }
   else if (e.t === 'firework') { sfx.firework(); fxs.push({ kind: 'firework', x: e.x, y: e.y, t: 0, life: 0.7, color: ['#ffd23a', '#ff6a8a', '#7dff7d', '#6ac8ff'][Math.floor(clock * 7) % 4] }); }
   else if (e.t === 'starEnd') { sfx.shrink(); music.play(stageTune(), G.hurried ? 1.35 : 1); }
   else if (e.t === 'shrink') sfx.shrink();
@@ -368,8 +377,9 @@ function handle(e) {
   else if (e.t === 'kick') sfx.kick();
   else if (e.t === 'kill') { sfx.kill(); fxs.push({ kind: 'text', x: e.x, y: e.y, t: 0, life: 0.8, text: String(e.pts), color: '#ffd23a' }); }
   else if (e.t === 'fire') sfx.fire();
+  else if (e.t === 'big') { sfx.big(e.n); fxs.push({ kind: 'text', x: e.x, y: e.y - 6, t: 0, life: 1, text: '1000', color: '#ffd23a' }); showBanner(`큰 동전 ${e.n}/3`, e.n >= 3 ? '모두 모았어요!' : '', e.n >= 3 ? 1.6 : 0.9, '#ffd23a'); }
   else if (e.t === 'mid') { sfx.mid(); showBanner('중간 지점!', '죽어도 여기서 다시 시작해요', 1.6, '#7dff7d'); }
-  else if (e.t === 'flag') { music.stop(); sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
+  else if (e.t === 'flag') { saveBigs(); music.stop(); sfx.flag(); showBanner('골인!', `깃대 +${e.pts}${e.bonus ? ` · 시간 +${e.bonus}` : ''}`, 3, '#7dff7d'); }
   else if (e.t === 'clear') { sfx.clear(); tutorialSignal('clear'); if (!G.won && !TUTORIAL && G.stage + 1 > unlocked) { unlocked = G.stage + 1; store.set('smStage', String(unlocked)); } }
   else if (e.t === 'stage' && G.time > 0.2) { announceStage(); music.play(stageTune()); }
   else if (e.t === 'dead') { music.stop(); sfx.dead(); showBanner(e.why === 'time' ? '시간 초과!' : '앗!', '', 1.6, '#ff6a6a'); }
@@ -511,6 +521,17 @@ function drawTiles(th) {
     const b = bumps.find((q) => q.tx === tx && q.ty === ty);
     if (b) dy = -Math.sin((b.t / 0.2) * Math.PI) * 5;
     drawTile(ch, tx * T - Math.round(G.camX), HUD + ty * T + dy, th, tx, ty);
+  }
+  // 큰 동전: 반짝이며 위아래로 흔들린다 (먹으면 사라진다)
+  if (!G.inRoom && !G.tutorial) for (const [i, b] of G.level.bigs.entries()) {
+    if (G.bigGot[i]) continue;
+    const bx = b.x * T + 8 - Math.round(G.camX);
+    if (bx < -16 || bx > VW + 16) continue;
+    const by = HUD + b.y * T + 8 + Math.sin(clock * 3 + i) * 2, sq = Math.abs(Math.cos(clock * 2.4 + i));
+    ctx.fillStyle = '#e0571c'; ctx.beginPath(); ctx.ellipse(bx, by, 8 * (0.35 + 0.65 * sq), 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.ellipse(bx, by, 6.5 * (0.35 + 0.65 * sq), 8.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff7b0'; ctx.fillRect(bx - 1, by - 5, 2, 10 * (0.4 + 0.6 * sq));
+    if (Math.floor(clock * 4 + i) % 6 === 0) { ctx.fillStyle = '#fff'; ctx.fillRect(bx + 6, by - 9, 2, 2); ctx.fillRect(bx - 8, by + 5, 2, 2); }
   }
   // 중간 지점 깃발: 지나가기 전에는 흰 깃발이 낮게, 지나가면 초록 깃발이 꼭대기로 올라간다
   if (!G.inRoom && G.level.mid !== undefined && !G.tutorial) {
@@ -813,6 +834,7 @@ function drawHud() {
     ctx.fillStyle = '#fff'; ctx.fillText(`${G.stage}코스`, 94, HUD / 2);
     ctx.fillStyle = G.timeLeft < 30 && !G.tutorial ? '#ff6a6a' : '#fff'; ctx.fillText(G.tutorial ? '연습' : `⏱${Math.ceil(G.timeLeft)}`, 126, HUD / 2);
     ctx.fillStyle = '#ff6a8a'; ctx.fillText(`♥×${G.lives}`, 164, HUD / 2);
+    if (!G.tutorial && G.level.bigs.length) for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(192 + i * 9, HUD / 2, 3.3, 0, Math.PI * 2); ctx.fillStyle = G.bigGot[i] ? '#ffd23a' : '#444'; ctx.fill(); ctx.strokeStyle = '#fff3a0'; ctx.lineWidth = 0.8; ctx.stroke(); }
   }
 }
 function draw() {

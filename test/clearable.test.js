@@ -32,3 +32,12 @@ test('the bot is not a pushover: it cannot pass a wall that is far too high', ()
   });
   assert.strictEqual(r.cleared, false);
 });
+
+test('the bot can collect all three big coins in stages it can steer to them', () => {
+  const missed = [];
+  for (const s of [1, 2, 3, 4, 5, 9]) {
+    const r = bot.play(s, 1, { maxSec: 200, hunt: true });
+    if (!r.cleared || r.bigs < 3) missed.push(`stage ${s}: bigs=${JSON.stringify(r.bigGot)} cleared=${r.cleared}`);
+  }
+  assert.deepStrictEqual(missed, []);
+});
